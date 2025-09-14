@@ -532,8 +532,8 @@ def get_effective_role(player: "Player") -> Tuple[str, str, "Alignment"]:
     Returns (role_name, ability_desc, alignment)
     """
     # Handle Drunk case
-    if player.role.name == "Drunk" and "drunk_role" in player.memory:
-        fake_role_name = player.memory["drunk_role"]
+    if player.role.name == "Drunk" and "drunk_role" in player.hidden_state:
+        fake_role_name = player.hidden_state["drunk_role"]
         fake_role = ROLE_BY_NAME[fake_role_name]
         return fake_role_name, fake_role.ability_desc, Alignment.TOWNSFOLK
     
@@ -552,9 +552,9 @@ def get_effective_role_name(player: "Player") -> str:
     Returns the role name the player thinks they are.
     Use this when you want to show the player what they think they are.
     """
-    # Handle Drunk case
-    if player.role.name == "Drunk" and "drunk_role" in player.memory:
-        return player.memory["drunk_role"]
+    # Handle Drunk case (drunk_role is in hidden_state, not memory, because players should not be told that they are the Drunk [same as with Lunatic])
+    if player.role.name == "Drunk" and "drunk_role" in player.hidden_state:
+        return player.hidden_state["drunk_role"]
     
     # Handle Lunatic case - they think they're the demon
     elif player.role.name == "Lunatic" and "lunatic_demon_info" in player.memory:
@@ -861,9 +861,6 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
         mem_lines = []
         mem_lines.append("<PRIVATE_MEMORY>")
         for k, v in player.memory.items():
-            # Never show 'drunk_role' in private memory
-            if k == "drunk_role":
-                continue
             # Never show 'was_demon' information to exorcist (they shouldn't know if they targeted the demon)
             if k == "exorcist" and isinstance(v, dict) and "data" in v and "was_demon" in v["data"]:
                 # Show exorcist memory without revealing whether they targeted the demon
@@ -1660,19 +1657,15 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
     if baron_in_play:
         outsider_modifier += 2
         town_modifier -= 2
-        print_colored(f"[DEBUG] Baron in play: +2 Outsiders, -2 Townsfolk", 'DEBUG')
     
     # Capo Crimini adds +1 or -1 Outsider (randomly chosen)
     if capo_crimini_in_play:
         capo_modifier = random.choice([-1, 1])
         outsider_modifier += capo_modifier
         town_modifier -= capo_modifier
-        print_colored(f"[DEBUG] Capo Crimini in play: {capo_modifier:+d} Outsider, {town_modifier:+d} Townsfolk", 'DEBUG')
     
     outsider_count = base_outsider + outsider_modifier
     town_count = base_town + town_modifier
-    
-    print_colored(f"[DEBUG] Final role distribution: {town_count} Townsfolk, {outsider_count} Outsiders, {base_minion} Minions, {base_demon} Demon", 'DEBUG')
     
     # Select Outsiders and Townsfolk
     outsiders = random.sample(available_outsiders, outsider_count) if outsider_count > 0 else []
@@ -1689,7 +1682,7 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
         if player.role.name == "Drunk":
             # Drunk thinks they are a Townsfolk
             fake_role = random.choice([r for r in available_townsfolk if r not in bag])
-            player.memory["drunk_role"] = fake_role.name
+            player.hidden_state["drunk_role"] = fake_role.name
             player.drunk = True
             drunk_fake_role = fake_role.name
     # Assign 3 bluffs to all demons (Townsfolk not in play, not the Drunk's fake role)
@@ -1719,7 +1712,7 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
     # Log any Drunk players (who think they're something else)
     for p in players:
         if p.drunk:
-            gs.log_secret(f"Drunk: {p.label()} thinks they are {p.memory['drunk_role']}")
+            gs.log_secret(f"Drunk: {p.label()} thinks they are {p.hidden_state['drunk_role']}")
     # Log demon bluffs
     for demon in demons:
         if "bluffs" in demon.memory:
@@ -2008,7 +2001,7 @@ def run_night(gs: GameState):
     night_num = gs.day
     gs.set_phase_tick(f"Night {night_num}")  # LLM: Set phase tick for logging
     gs.log_secret(f"-- Dusk of Night {night_num} --")
-    gs.log_secret(f"[DEBUG] Start of night: phase={gs.phase}, day={gs.day}")
+    gs.log_secret(f"Start of night: phase={gs.phase}, day={gs.day}")
     
     # Check for drunkenness expiry at dusk
     check_drunkenness_expiry(gs)
@@ -2329,7 +2322,7 @@ def run_night(gs: GameState):
     gs.memory["killed_by_demon"] = None
     gs.memory["day_deaths"] = []
     
-    gs.log_secret(f"[DEBUG] Transition to Day {gs.day}: phase={gs.phase}, day={gs.day}")
+    gs.log_secret(f"Transition to Day {gs.day}: phase={gs.phase}, day={gs.day}")
     gs.log_public(f"Day {gs.day} dawns – discuss!")
     # Check win condition after night deaths
     if check_win_condition(gs):
@@ -4176,7 +4169,7 @@ def run_imp_ability(gs: GameState, player: Player):
         elif target.role.name == "Soldier" and is_sober_trustworthy(target):
             gs.memory["killed_by_demon"] = None
             if DEBUG_ALL_LOGS:
-                gs.log_secret(f"[DEBUG] Imp tried to kill Soldier {target.label()} but failed (immune).")
+                gs.log_secret(f"Imp tried to kill Soldier {target.label()} but failed (immune).")
             success = False
         else:
             # --- Mark the target as dead immediately to prevent double-kill ---
