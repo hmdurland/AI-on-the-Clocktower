@@ -538,8 +538,8 @@ def get_effective_role(player: "Player") -> Tuple[str, str, "Alignment"]:
         return fake_role_name, fake_role.ability_desc, Alignment.TOWNSFOLK
     
     # Handle Lunatic case - they think they're the demon
-    elif player.role.name == "Lunatic" and "lunatic_demon_info" in player.memory:
-        fake_demon_type = player.memory["lunatic_demon_info"]["fake_demon_type"]
+    elif player.role.name == "Lunatic" and "lunatic_demon_info" in player.hidden_state:
+        fake_demon_type = player.hidden_state["lunatic_demon_info"]["fake_demon_type"]
         fake_demon_role = ROLE_BY_NAME[fake_demon_type]
         return fake_demon_type, fake_demon_role.ability_desc, Alignment.DEMON
     
@@ -557,8 +557,8 @@ def get_effective_role_name(player: "Player") -> str:
         return player.hidden_state["drunk_role"]
     
     # Handle Lunatic case - they think they're the demon
-    elif player.role.name == "Lunatic" and "lunatic_demon_info" in player.memory:
-        return player.memory["lunatic_demon_info"]["fake_demon_type"]
+    elif player.role.name == "Lunatic" and "lunatic_demon_info" in player.hidden_state:
+        return player.hidden_state["lunatic_demon_info"]["fake_demon_type"]
     
     else:
         return player.role.name
@@ -3932,18 +3932,16 @@ def demon_minion_info(gs: GameState):
             # Fallback if no real demon (shouldn't happen)
             fake_demon_type = "Imp"
         
-        # Create fake minions (random players, not the actual minions)
-        # Exclude the Lunatic and any actual demons from being fake minions
-        potential_fake_minions = [p for p in gs.players if p != lunatic and p.role.alignment != Alignment.DEMON]
-        num_fake_minions = len(minions)  # Same number as real minions
-        fake_minion_players = random.sample(potential_fake_minions, min(num_fake_minions, len(potential_fake_minions)))
-        fake_minion_names = [f"{p.name} (Seat {p.seat})" for p in fake_minion_players]
+        # Create fake minions (random players, which may or may not be the actual minions)
+        # Exclude the Lunatic from being minions
+        potential_minions = [p for p in gs.players if p != lunatic]
+        num_minions = len(minions)  # Same number as real minions
+        minion_players = random.sample(potential_minions, min(num_minions, len(potential_minions)))
+        minion_names = [f"{p.name} (Seat {p.seat})" for p in minion_players]
         
         # Store the fake demon info
-        lunatic.memory["lunatic_demon_info"] = {
-            "fake_demon_type": fake_demon_type,
-            "fake_minions": fake_minion_names,
-            "fake_bluffs": bluffs
+        lunatic.hidden_state["lunatic_demon_info"] = {
+            "fake_demon_type": fake_demon_type
         }
         
         # Give Lunatic the same message format as the real demon would get
@@ -3952,14 +3950,14 @@ def demon_minion_info(gs: GameState):
             # Only assign bluffs if not already set (avoid overwriting setup bluffs)
             if "bluffs" not in lunatic.memory:
                 lunatic.memory["bluffs"] = bluffs
-            lunatic.memory["minions"] = fake_minion_names
-            minion_str = ', '.join(fake_minion_names) if fake_minion_names else "None"
+            lunatic.memory["minions"] = minion_names
+            minion_str = ', '.join(minion_names) if minion_names else "None"
             bluff_str = ', '.join(lunatic.memory["bluffs"]) if "bluffs" in lunatic.memory else "None"
             msg = f"As the {fake_demon_type}, your minions are: {minion_str}. Your three bluff roles are: {bluff_str}."
         else:
             # No bluffs for smaller games
-            lunatic.memory["minions"] = fake_minion_names
-            minion_str = ', '.join(fake_minion_names) if fake_minion_names else "None"
+            lunatic.memory["minions"] = minion_names
+            minion_str = ', '.join(minion_names) if minion_names else "None"
             msg = f"As the {fake_demon_type}, your minions are: {minion_str}."
         
         if is_human_player(lunatic):
@@ -6524,7 +6522,7 @@ def handle_lunatic_night_action(gs: GameState, player: Player):
         return
     
     # Get the fake demon type the Lunatic thinks they are
-    fake_demon_type = player.memory.get("lunatic_demon_info", {}).get("fake_demon_type", "Imp")
+    fake_demon_type = player.hidden_state.get("lunatic_demon_info", {}).get("fake_demon_type", "Imp")
     
     # Mirror the appropriate demon ability based on what the Lunatic thinks they are
     if fake_demon_type == "Imp":
@@ -6565,7 +6563,7 @@ def run_lunatic_imp_ability(gs: GameState, player: Player):
     target = random.choice(targets)
     
     # Store the Lunatic's "kill" choice
-    player.memory["lunatic_kill_choice"] = {"target": target.seat, "night": gs.day}
+    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
     
     # Inform the real Demon about the Lunatic's choice
     demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
@@ -6613,7 +6611,7 @@ def run_lunatic_zombuul_ability(gs: GameState, player: Player):
     target = random.choice(targets)
     
     # Store the Lunatic's "kill" choice
-    player.memory["lunatic_kill_choice"] = {"target": target.seat, "night": gs.day}
+    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
     
     # Inform the real Demon about the Lunatic's choice
     demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
@@ -6648,7 +6646,7 @@ def run_lunatic_pukka_ability(gs: GameState, player: Player):
     target = random.choice(targets)
     
     # Store the Lunatic's "kill" choice
-    player.memory["lunatic_kill_choice"] = {"target": target.seat, "night": gs.day}
+    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
     
     # Inform the real Demon about the Lunatic's choice
     demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
@@ -6683,7 +6681,7 @@ def run_lunatic_shabaloth_ability(gs: GameState, player: Player):
     target = random.choice(targets)
     
     # Store the Lunatic's "kill" choice
-    player.memory["lunatic_kill_choice"] = {"target": target.seat, "night": gs.day}
+    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
     
     # Inform the real Demon about the Lunatic's choice
     demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
@@ -6718,7 +6716,7 @@ def run_lunatic_po_ability(gs: GameState, player: Player):
     target = random.choice(targets)
     
     # Store the Lunatic's "kill" choice
-    player.memory["lunatic_kill_choice"] = {"target": target.seat, "night": gs.day}
+    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
     
     # Inform the real Demon about the Lunatic's choice
     demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
