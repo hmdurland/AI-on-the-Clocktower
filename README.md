@@ -2,6 +2,11 @@
 
 Browser-playable Blood on the Clocktower v1.5 simulation with LLM players, plus an intelligence-test harness for replaying authentic decision scenarios.
 
+## Requirements
+
+- Python 3.10+
+- An OpenAI API key and/or Gemini API key
+
 ## Quickstart ("Just tell me how to play this")
 
 1. On the GitHub page for this project, click the green `Code` button, then click `Download ZIP`.
@@ -36,11 +41,6 @@ If `py` does not work on your machine, replace it with `python`.
 - `app.py`: Streamlit web UI for running games locally in a browser
 - `engine.py`: game engine and LLM integration
 - `intel_tests/`: scenario replay harness for intelligence tests
-
-## Requirements
-
-- Python 3.10+
-- An OpenAI API key and/or Gemini API key
 
 Install dependencies:
 
