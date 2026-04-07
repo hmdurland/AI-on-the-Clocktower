@@ -2,9 +2,7 @@
 
 Browser-playable Blood on the Clocktower v1.5 simulation with LLM players, plus an intelligence-test harness for replaying authentic decision scenarios.
 
-## Just tell me how to play this
-
-If you are not familiar with GitHub, do this:
+## Quickstart ("Just tell me how to play this")
 
 1. Download this repository to your computer.
 2. Open PowerShell in the folder containing these files.
