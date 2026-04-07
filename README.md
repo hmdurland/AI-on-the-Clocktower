@@ -1,6 +1,6 @@
-# AI-on-the-Clocktower
+# AI-on-the-Clocktower v1.5
 
-Browser-playable Blood on the Clocktower simulation with LLM players, plus an intelligence-test harness for replaying authentic decision scenarios.
+Browser-playable Blood on the Clocktower v1.5 simulation with LLM players, plus an intelligence-test harness for replaying authentic decision scenarios.
 
 ## What is Included
 

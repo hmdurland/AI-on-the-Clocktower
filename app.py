@@ -792,7 +792,7 @@ def start_game(
 
 init_state()
 
-st.set_page_config(page_title="Blood on the Clocktower LLM", layout="wide")
+st.set_page_config(page_title="Blood on the Clocktower v1.5", layout="wide")
 
 st.markdown(
     """
@@ -1553,9 +1553,9 @@ if app_mode == "Gameplay":
         status_text = "Waiting for input"
 
     st.markdown("<div class='botc-shell'>", unsafe_allow_html=True)
-    st.markdown("<div class='botc-title'>Blood on the Clocktower</div>", unsafe_allow_html=True)
+    st.markdown("<div class='botc-title'>Blood on the Clocktower v1.5</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='botc-subtitle'>Interactive browser port of the notebook engine with structured transcript rendering.</div>",
+        "<div class='botc-subtitle'>v1.5 interactive browser port of the notebook engine with structured transcript rendering.</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
