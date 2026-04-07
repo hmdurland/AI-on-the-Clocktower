@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+botc_game_log_*.xml
+botc_game_log_*_observer.xml
+botc_game_log_*_ui_partial.xml
+intel_tests/results/
+*.log
+.env

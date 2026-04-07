@@ -1,0 +1,830 @@
+{
+  "scenario_id": "foxtrot_day4_vote_echo",
+  "name": "Foxtrot Day 4 Vote On Echo",
+  "description": "Real-game Foxtrot voting scenario from Day 4 in Bad Moon Rising. Echo is the nominee; public discussion includes Hotel's earlier successful Gambler confirmation of Echo as Gossip, but late momentum turns against Echo anyway.",
+  "character_set": 2,
+  "phase": "VOTING",
+  "day": 4,
+  "action_type": "voting",
+  "acting_seat": 0,
+  "action_options": {
+    "nominee_seat": 1,
+    "nominator_seat": 8
+  },
+  "tags": [
+    "real_log",
+    "voting",
+    "bad_moon_rising",
+    "foxtrot",
+    "echo"
+  ],
+  "game_memory": {
+    "no_execution_today": false
+  },
+  "players": [
+    {
+      "seat": 0,
+      "name": "Foxtrot",
+      "role": "Fool",
+      "alive": true
+    },
+    {
+      "seat": 1,
+      "name": "Echo",
+      "role": "Gossip",
+      "alive": true
+    },
+    {
+      "seat": 2,
+      "name": "Golf",
+      "role": "Lunatic",
+      "alive": false
+    },
+    {
+      "seat": 3,
+      "name": "Hotel",
+      "role": "Gambler",
+      "alive": false
+    },
+    {
+      "seat": 4,
+      "name": "Alpha",
+      "role": "Pacifist",
+      "alive": false
+    },
+    {
+      "seat": 5,
+      "name": "Bravo",
+      "role": "Mastermind",
+      "alive": false
+    },
+    {
+      "seat": 6,
+      "name": "India",
+      "role": "Pukka",
+      "alive": true
+    },
+    {
+      "seat": 7,
+      "name": "Charlie",
+      "role": "Goon",
+      "alive": true
+    },
+    {
+      "seat": 8,
+      "name": "Delta",
+      "role": "Professor",
+      "alive": true
+    }
+  ],
+  "public_log": [
+    {
+      "phase_tick_id": "",
+      "msg": "[SEAT ASSIGNMENTS] Seat 0: Foxtrot, Seat 1: Echo, Seat 2: Golf, Seat 3: Hotel, Seat 4: Alpha, Seat 5: Bravo, Seat 6: India, Seat 7: Charlie, Seat 8: Delta"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Day 1 dawns – discuss!"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Players discuss what they know... (nobody has had a chance to speak yet)"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Foxtrot: We need info — let's get everyone talking. Quick round: state any night action you know you had, any reads, or any role-claim you feel safe making. I want us to vote every day unless there's a very strong reason not to, so speak now: who do you distrust and why? If nobody gives anything useful, we should still pick someone to nominate rather than pass."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Echo: I'm Echo — I'm the Gossip. I have no night info to report. Reminder: I can make a public Gossip statement today, but I won't do that yet (it kills someone tonight if the statement is true), so I'm reserving it for when it might be decisive.\n\nI agree we should vote today. Share any night actions or strong reads you have. If we need a nomination, I nominate Hotel as a reasonable first target — not a hard read, just to get the day moving. Who else has info or strong suspicions?"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Golf: I agree we should vote — passing Day 1 is dangerous. I don't have any night info to share. Hotel is a fine first nomination to get things moving; let's vote. If people want alternatives, speak now, but I'm voting to execute Hotel."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Hotel: I'm Hotel — I'm the Gambler. I have no night info to report right now. I don't want to be the first execution; I need at least one day to act and try to gather something useful. We should still execute someone today, but not me.\n\nIf we're moving off Hotel, I'm happy to nominate Alpha as a reasonable alternative to get the day moving. Who else has reads? Let's pick and vote — passing is dangerous."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Alpha: I have no night info to report. I agree we should execute someone today — passing feels too risky on Day 1. I don't love Hotel volunteering themself as untouchable; that's a bit suspicious but not enough on its own. My nomination: Bravo to get the day moving. If others prefer Hotel or Alpha, speak now, but we should vote."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Bravo: I have no night info to report either. I agree we should execute someone today — passing is too risky. There's already momentum around Hotel and that's a fine first target to get info; I'm voting to execute Hotel. If anyone has a stronger read, speak now, but if not let's pick Hotel and vote to move the game forward."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "India: I have no night info to share. I agree we should execute someone today — passing feels risky. Hotel's reluctance to be executed is a little suspicious but not definitive, so I'm fine with moving forward on Hotel to get information. If others want an alternative, Bravo seems reasonable too — either way, let's pick someone and vote so we don't waste Day 1."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Charlie: I have no night info either. I agree we should execute someone today — passing feels too risky. Hotel is already the focus and executing them will give us useful information, so I'm fine moving forward with Hotel unless someone has a stronger read against another player."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Delta: I'm Delta. No night info to report. I'm the Professor — once per game I can resurrect a dead player at night if they're Townsfolk. I plan to hold that for when/if it's needed."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Foxtrot: I have no night info to report. I agree we should execute someone today — passing Day 1 feels dangerous. I'm fine with moving on Hotel to get information and force a reaction; nominate Hotel to get the day moving. I won't pass. Who else has reads?"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Echo: I'm Echo — Gossip. I'm still holding my Gossip statement for when it can be decisive tonight, so I won't use it yet.\n\nI agree we need to execute today rather than pass. There's already momentum around Hotel and forcing a vote will give us useful information; I'm happy to move forward with Hotel as the nominee to get the day rolling. If anyone has a stronger read against someone else, speak now — otherwise let's pick Hotel and vote so we don't waste Day 1."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Golf: I have no night info to share either. I agree we should execute someone today — passing Day 1 feels risky. Hotel is already the focal point and voting there will give us useful information, so I'm voting to execute Hotel. If others prefer a different target, speak now, but let's pick someone and vote so we don't waste Day 1."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Hotel: I'm Hotel (Gambler). No night info to report — I need at least one day alive to actually use my ability, so I don't want to be the first execution. I agree we should execute today rather than pass. If we're picking someone now, I think Alpha is a reasonable alternative to keep the momentum and get info; I'm happy to nominate Alpha and vote to execute them so the game moves. I won't volunteer myself. Who's willing to put Alpha up?"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Alpha: I have no night info to report. I agree we should execute someone today — passing feels too risky. I'm okay moving with the table on Hotel to get information (if you prefer Bravo instead I can live with that), but I won't volunteer myself. I'll vote to execute Hotel."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Bravo: I agree we should execute someone today — passing feels too risky. Hotel's already the focal point and voting there will give us useful information, so I'm voting to execute Hotel. If others prefer a different target, speak now, but let's pick someone and vote so we don't waste Day 1."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "India: I have no night info to report. I agree we should execute someone today — passing Day 1 feels risky. Hotel is already the focal point and voting there will give us useful information, so I'm voting to execute Hotel. Let's pick someone and move the day forward."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Charlie: I have no night info to report. I agree we should execute someone today — passing feels risky. There's already momentum on Hotel, which will give us useful info, so I'm happy to vote there. Echo, any plan on when you'll use your Gossip? I think saving it for a decisive moment tonight makes sense. Let's pick someone and vote so the day moves."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Delta: No night info from me. I'm the Professor and will hold my resurrection until we have a clear need for it. I agree we should execute today rather than pass — Hotel is the consensus pick and will give us useful information, so I'm voting to execute Hotel. Let's pick someone and vote so we get Day 1 info."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Foxtrot nominates Hotel for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Hotel nominates Alpha for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Bravo nominates Foxtrot for execution."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Players vote on the nominations..."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes NO on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel received 8 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha received 1 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot received 0 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel (Seat 3) receives 8 votes and will be executed."
+    },
+    {
+      "phase_tick_id": "Execution 1",
+      "msg": "Hotel (Seat 3) was executed... but the execution mysteriously failed."
+    },
+    {
+      "phase_tick_id": "Night 1",
+      "msg": "Golf (Seat 2) died during the night!"
+    },
+    {
+      "phase_tick_id": "Night 1",
+      "msg": "Day 2 dawns – discuss!"
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Players discuss what they know..."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Foxtrot: I have no night information to report. I voted to execute Hotel in fast voting and I’m happy to keep with the table — we should pick someone and get a result today rather than pass. Hotel is a reasonable first target to force information; let’s nominate and vote."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Echo: I'm Echo (Gossip) and I'm still holding my Gossip statement for when it can be decisive tonight — I won't use it yet. For transparency: my fast vote in the quick voting was for Seat 3 (Hotel). I agree we should pick someone and vote today rather than pass; Hotel is the current focal point and will give us useful info, so I'm happy to move on Hotel unless someone has a strong reason to pick someone else. Let's nominate and vote."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Golf: I'm Golf (dead). I voted for Hotel in the quick vote yesterday and I think the town should follow through — execute Hotel to get Day 2 info rather than passing. Echo, I agree with you holding the Gossip for a decisive moment, but don't sit on it forever. Let's pick Hotel and vote so the day moves."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Hotel: Quick and simple: I am Hotel, the Gambler. Last night I targeted Seat 1 (Echo) and guessed \"Gossip\" — that guess was correct. Echo really is the Gossip. I want to live to use my ability further, so I won't volunteer myself for execution; but I agree we should execute someone today to get info. I'm happy to put weight behind a consensus nominee (Alpha was suggested earlier). Let's pick someone and vote so we don't pass."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Alpha: I'm Alpha — I'm the Pacifist. Executed good players might not die (so if someone survives execution, it's not necessarily mafia trickery). I voted Hotel in fast voting, but now that Echo is confirmed Gossip and Hotel correctly ID'd them, I'd prefer we not waste the Gambler if we can avoid it. I agree we must execute today — nominate Bravo as a reasonable target to get info and keep momentum. I'm voting to execute Bravo. Let's pick someone and close the day."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Bravo: I don't have any night info to report either. I'm surprised Alpha nominated me — there was a lot of earlier momentum for Hotel and that made sense to get Day 1 info. Alpha, can you explain why you switched targets to me instead of going with the earlier consensus on Hotel? If we've already got a clear focal point (Hotel), I'd prefer we stick with that so we actually learn something from this day rather than splintering.\n\nI haven't claimed any role and have nothing to hide, but being singled out this quickly feels like a weak play unless someone has actual reasons. My vote is still for whoever the table picked earlier: Hotel — put them up and let's close the day and get information. If people want to execute someone now, at least tell the group concrete reasons why Bravo > Hotel."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "India: I have no night information to share. Passing feels dangerous — we should pick someone and get info. Alpha nominated Bravo and Bravo pushed back hard instead of giving any substantive reason they shouldn't be a target; that defensiveness looks suspicious to me. I nominate Bravo to get the day moving and will vote to execute them."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Charlie: I have no night info to report. My fast vote was for Hotel (seat 3) and I agree we should pick someone and execute today rather than pass — Hotel's correct ID of Echo (Gossip) makes Echo credible, and executing will give us useful information. I won't volunteer myself. I'm voting to execute Hotel."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Delta: I'm Delta, the Professor — I already used my resurrection once last night on Golf; it wasn't a Townsfolk so it failed, so I have no more resurrects left. Given that, I'm inclined to keep pressure on getting a daytime execution rather than passing.\n\nEcho's Gossip claim was just confirmed by Hotel's Gambler check, which makes Echo credible. We still need day info to narrow things down, and passing feels risky with no strong leads.\n\nI'm voting to execute Hotel to keep with the table and force information. Let's pick a target and close the day so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Foxtrot: I have no night info to report. I voted Hotel in fast voting and I still think we should pick Hotel (seat 3) as the execution candidate to get Day 2 info and force a reaction. There's already momentum and we shouldn't pass or splinter the vote — let's nominate Hotel and close the day so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Echo: I'm Echo — confirmed Gossip (Hotel's Gambler check was right). I am not using my Gossip statement yet; I'll save it for a moment when it can be decisive tonight. For now I agree we should execute today rather than pass to get info. My fast vote was for Hotel and I will vote to execute Hotel to keep the momentum and force a reaction."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Golf: I'm Golf (dead). For transparency: I was the Demon (Pukka). Night 1 I poisoned Seat 5 (Bravo). Expect that to matter tonight. Given that, I think the town should stick with executing Hotel — keep the momentum and force useful info. Don't split the vote; execute Hotel. That's my read."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Hotel: Quick and simple: I already revealed my Gambler result — Echo is the Gossip (my night 1 guess was correct). Echo is credible and we should keep them alive for their statement later, so executing me would be a bad use of our confirmed role.\n\nWe need to pick a different target and execute today. Alpha nominated Bravo and Bravo was unusually defensive instead of giving reasons they're Town — that looks suspicious to me. Plus there's been public mention that Bravo was poisoned by Golf (the dead player who claimed Pukka), which makes Bravo an interesting target to pressure.\n\nI won't volunteer myself. I nominate Bravo (seat 5) for execution so we get Day 2 information and keep Echo and the Gambler alive to provide more value."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Alpha: Reminder: I'm Alpha — the Pacifist. Executed good players might not die, so be aware that an execution failing doesn't automatically mean evil trickery.\n\nWe should execute today rather than pass. Echo (Gossip) and Hotel (Gambler) have both earned credibility — I don't want us to waste the Gambler or the Gossip if we can avoid it. Bravo has been unusually defensive about being nominated and there's a claim from dead Golf that Bravo was poisoned last night, which makes Bravo worth pressuring for info.\n\nI'm keeping my nomination on Bravo (seat 5) and will vote to execute him. If the table strongly prefers Hotel, say why Hotel > Bravo concretely; otherwise let's pick Bravo and close the day so we get useful info."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Bravo: Sorry for being defensive earlier — I was surprised to be singled out so quickly. I agree passing is risky and we should pick someone and learn information. There's already a lot of momentum for Hotel and executing them will give us useful Day 2 info, so I won't resist that choice. I'm voting to execute Hotel."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "India: I have no night info to share. Passing feels risky — we should execute someone today and get info. There's already a lot of momentum for Hotel and that will force reactions we can read. I'm voting to execute Hotel (seat 3); let's pick someone and close the day so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Charlie: I have no night info to share. My fast vote was for Hotel (seat 3) and I agree we should execute someone today rather than pass — there's already momentum and we need the info. Let's not splinter the vote; pick Hotel and close the day so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Delta: I'm Delta (Professor). I already used my one resurrection on Golf last night and it failed, so I have no more night saves available.\n\nWe need to execute today rather than pass. Echo's Gossip and Hotel's Gambler result (Hotel correctly ID'd Echo) both increase the value of keeping those players alive, but the table already has momentum to execute Hotel and many players (including Bravo) have agreed to go with that to force information. Also remember Alpha is the Pacifist — a failed execution doesn't automatically mean evil.\n\nGiven all that, I'm voting to execute Hotel to force a result and get Day 2 information. Let's pick a target and close the day so we can learn something."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Foxtrot nominates Bravo for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Hotel nominates Alpha for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Alpha nominates Hotel for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "India nominates Echo for execution."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Players vote on the nominations..."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes YES on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel votes NO on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes YES on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes NO on Hotel"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo received 1 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha received 0 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel received 6 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo received 0 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Hotel (Seat 3) receives 6 votes and will be executed."
+    },
+    {
+      "phase_tick_id": "Execution 2",
+      "msg": "Hotel (Seat 3) was executed today with 6 vote(s)."
+    },
+    {
+      "phase_tick_id": "Night 2",
+      "msg": "Alpha (Seat 4) died during the night!"
+    },
+    {
+      "phase_tick_id": "Night 2",
+      "msg": "Day 3 dawns – discuss!"
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Players discuss what they know..."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Foxtrot: I agree we should execute today to get information. Bravo has been unusually defensive about being nominated and there's the earlier claim that Golf poisoned them, so I'm inclined to keep pressure there. I nominate Bravo and will vote to execute them — let's close the day and get a result."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Echo: Quick reminder: I’m Echo (Gossip) and I’m still holding my Gossip — I’ll only use it if it can be decisive tonight.\n\nWe need to execute someone today rather than pass. Bravo (seat 5) has been repeatedly defensive when nominated and there’s the public claim from Golf that Bravo was poisoned last night, which makes them worth pressing for info. For transparency: my fast vote was for Hotel (seat 3). I’m now nominating and voting to execute Bravo (seat 5) to get Day information and keep momentum. If the table strongly prefers another target, say why they’re a better pick than Bravo — but we should close the day and get a result."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Golf: Reminder: I was Pukka and I poisoned Seat 5 (Bravo) on Night 1 — that was public earlier. Bravo being defensive when nominated plus having been poisoned makes them a solid execution target to force info. Don't split the vote; pick someone and close the day so we get a result."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Hotel: I'm Hotel (Gambler). My night 1 guess at Echo was correct — Echo is the Gossip. Echo's claim is therefore reliable.\n\nGiven that, we should use Echo's statement when it's decisive. We can't sit on information. There's public claim that Golf (dead) was Pukka and poisoned Bravo last night, and Bravo's defensiveness when nominated looks suspicious to me. Also remember Alpha is Pacifist — a failed execution doesn't automatically mean evil.\n\nI can't vote, but my recommendation is to execute Bravo (seat 5) today to force useful info and keep Echo alive for a decisive Gossip. Don't pass — daylight executions are how we get traction."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Alpha: I’m Alpha (Pacifist). I support executing today rather than passing — we need Day info and the table’s momentum is on Bravo. Two quick reminders: (1) my ability means an executed good player might not die, so if an execution “fails” it isn’t automatic proof of evil; (2) Golf publicly claimed to have poisoned Bravo (Pukka), so Bravo may already be compromised, making them a reasonable pressure target.\n\nI can’t nominate or vote from the grave, but I urge the living to pick a target (Bravo is fine) and close the day so we get useful information. Don’t let fear of a single failed execution freeze the town — execute to learn."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Bravo: Sorry for coming off defensive earlier — I was genuinely surprised to be nominated so quickly. For transparency: my fast vote was for Hotel (I wanted to force info like a lot of people did). I’ve got nothing to hide, but being put on the stand without concrete evidence felt abrupt.\n\nLet’s be clear about what we actually have against me: one dead player (Golf) said I was poisoned, and people are reading my defensive reaction as suspicious. Neither is ironclad. Golf is dead and could have been lying or confused; and anyone would be defensive if suddenly nominated.\n\nEcho is a credible Gossip now (Hotel’s Gambler corroborated them) — I’d rather the table keep Echo’s statement available for a decisive moment than waste it on a weak read. If we’re executing today to gain info (I agree we should), nominate someone with clearer reasons than “they got defensive” or a single dead-player claim. For example, Foxtrot has been pushing execution of Hotel hard and is very vocal — that’s a reasonable, fresh test.\n\nI’ll vote to execute Foxtrot (seat 0) unless the table shows a stronger concrete case against someone else. Don’t just pick me because I argued — give real evidence."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "India: I don't want us to waste the day on a flimsy lead. The only thing \"against\" Bravo is a dead player's claim (Golf) that they were poisoned and some perceived defensiveness — that's not strong evidence by itself. Echo's Gossip and Hotel's Gambler have earned trust; let's not burn that by splintering or executing on vagueness.\n\nBravo suggested Foxtrot as a reasonable fresh test and I agree — Foxtrot has been pushing hard to execute Hotel and has been very vocal. That's a legitimate thing to test today. I nominate Foxtrot (seat 0) for execution so we get a clear info result and keep the table's momentum. If people really prefer to stick with Bravo, make the concrete case beyond \"they were defensive\" or a single dead-player claim. Otherwise let's pick a stronger, testable target and close the day."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Charlie: I fast-voted Hotel in the quick vote. We need to execute today to get info — passing again is too risky. Bravo's \"defensiveness\" and a single dead-player claim (Golf) isn't strong enough on its own. Foxtrot has been unusually vocal and pushing Hotel hard earlier; that's a legitimate fresh test that will produce useful info either way."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Delta: I'm Delta — Professor. I used my one resurrection already (it failed on Golf), so I have no night saves left.\n\nWe need to execute today to get information rather than pass. Bravo's only real \"evidence\" is a dead player's claim and some defensiveness, which feels thin. Foxtrot has been very vocal and pushing Hotel hard earlier — that's a legitimate, fresh test that will produce useful info either way.\n\nI nominate Foxtrot (seat 0) and will vote to execute them. Let's close the day and force a result so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Foxtrot: I get why people want to force a result today, but nominating me because I pushed for Hotel earlier and have been vocal is a weak read — everyone who wants the town to move will be loud. We need a concrete, testable target, not \"they argued\" as the only reason.\n\nWhat do we actually have against Bravo? One dead player (Golf) claimed they were poisoned and Bravo was defensive when nominated. That's at least something tangible to test. By contrast, the case against me is just \"you're loud\" — not information.\n\nI don't want the day to splinter. I'll switch: nominate and vote Bravo (seat 5). If the table insists on testing someone else, give a clear, non-emotional reason why that person is better than Bravo. But please — don't execute someone just for being outspoken. Let's pick a target with actual leads and close the day."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Echo: I’m using my Gossip now because we need a decisive push. GOSSIP: Bravo is aligned with the evil team (a Minion or the Demon).\n\nWe have two tangible things on Bravo — Golf publicly claimed to have poisoned them last night, and Bravo’s defensiveness under nomination. I’m not going to sit on this any longer: the table needs to pick someone and execute today to get info. I recommend we nominate and vote Bravo (seat 5) now so we stop splintering and force a result. If people want to argue for a different concrete, testable target, do it now — but otherwise let’s close the day and vote Bravo."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Golf: I’ll be blunt: I poisoned Bravo on Night 1. That’s public info I gave earlier for context — it’s why Bravo being pressured makes sense. Echo just used their Gossip on Bravo and Hotel’s Gambler corroborated Echo, so we’ve already got two credible signals pointing at Bravo. Don’t splinter this day on vague “they were loud” reads — pick a concrete target and close the day. Nominate and vote Bravo (seat 5) so we get a result and force information tonight."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Hotel: I'm Hotel — Gambler. My night 1 guess confirmed Echo as Gossip, so Echo's claim carries weight. Echo has now used Gossip on Bravo, and Golf (dead) already said he poisoned Bravo last night — that's two independent reasons to be suspicious.\n\nRemember Alpha was Pacifist, so a failed execution could be a Town save, not necessarily evil play, but that doesn't mean we should freeze. We need day info. Don't splinter this vote. Nominate and vote Bravo (seat 5) and let's close the day to force a result."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Alpha: I'm dead Alpha (Pacifist) — quick reminder: if an execution \"fails\" it could be my ability (executed good players might not die), so don't treat a non-death as automatic proof of evil.\n\nEcho just used Gossip on Bravo and Hotel's Gambler earlier corroborated Echo — that's two independent reasons to suspect Bravo. We can't afford to pass again. I can't nominate or vote, but I strongly urge the living to pick a concrete target and close the day: nominate and execute Bravo (seat 5) so we force information tonight. If the vote starts to splinter, focus on behaviors and real signals (not just \"they were loud\")."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Bravo: Look, I get why people are suspicious given Golf's claim and how defensive I sounded when I was nominated — I was genuinely surprised and reacted poorly. That doesn't mean I'm evil. We need a concrete, testable reason to execute someone today, not just gut feelings about how I responded."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "India: Echo and Hotel have both given independent credibility (Hotel's Gambler corroborated Echo earlier), and Echo just used Gossip on Bravo. That’s two fairly solid signals pointing at Bravo. We can't afford to pass again — we need day info. I will nominate and vote Bravo (seat 5) to close the day and force a result. If anyone has a concrete, testable reason to pick someone else, say it now; otherwise let's pick Bravo and vote."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Charlie: I have no night info to report. We need to execute today to get information rather than pass. Echo just used Gossip on Bravo and Golf publicly said he poisoned Bravo — that's two independent reasons to be suspicious. I’ll vote to execute Bravo (seat 5). Also remember Alpha was the Pacifist: if an execution \"fails\" it might be a Town save, not immediate proof of evil, so we still need to keep pressure and gather more info tonight."
+    },
+    {
+      "phase_tick_id": "Day 3",
+      "msg": "Delta: I'm Delta — Professor. I used my one resurrection already (it failed on Golf), so I have no more night saves.\n\nEcho has been corroborated by Hotel's Gambler and just used Gossip on Bravo. Golf also publicly claimed he poisoned Bravo last night. Those are two independent pieces of evidence pointing at Bravo. We can't afford to pass again; we need day info.\n\nReminder: Alpha is Pacifist, so a failed execution could be a Town save and isn't automatic proof of evil. That said, given the signals we have, I will nominate/vote to execute Bravo (seat 5). Let's close the day and force a result so we learn something tonight."
+    },
+    {
+      "phase_tick_id": "Nominations 3",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 3",
+      "msg": "Foxtrot nominates Bravo for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 3",
+      "msg": "India nominates Foxtrot for execution."
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Players vote on the nominations..."
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Foxtrot votes YES on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Echo votes YES on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Bravo votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "India votes NO on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Charlie votes YES on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Delta votes YES on Bravo"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Foxtrot votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Echo votes YES on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Bravo votes YES on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "India votes YES on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Charlie votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Delta votes NO on Foxtrot"
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Bravo received 4 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Foxtrot received 3 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 3",
+      "msg": "Bravo (Seat 5) receives 4 votes and will be executed."
+    },
+    {
+      "phase_tick_id": "Execution 3",
+      "msg": "Bravo (Seat 5) was executed today with 4 vote(s)."
+    },
+    {
+      "phase_tick_id": "Night 3",
+      "msg": "No one died during the night."
+    },
+    {
+      "phase_tick_id": "Night 3",
+      "msg": "Day 4 dawns – discuss!"
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Players discuss what they know..."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Foxtrot: Bravo’s execution gave us a clear result — we learned something, so we should keep using the day to force more info instead of passing.\n\nEcho’s Gossip has looked credible so far and we should lean on living claims when choosing a target. I don’t want us to splinter again: nominate and vote someone now so we get another result tonight. I nominate Seat 6 (India) — they’ve been switching targets and are a reasonable, testable candidate. Let’s pick someone and close the day."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Echo: I have no new Gossip to use right now. We need another concrete test today rather than pass. Foxtrot has been very vocal and has shifted targets a few times — that’s a reasonable, testable pick. I nominate Foxtrot (seat 0) and will vote to execute them so we force a result and get more info tonight."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Golf: Quick thought from a dead player's perspective: Echo's behavior looks odd to me — they delayed using Gossip until it would maximally split the table and push a specific target. That timing feels more like strategic manipulation than a town wanting a clean info drop.\n\nAlso, people keep pointing at India as someone who keeps switching targets and hasn't given a clear read. If we're trying to force Day info, pick a living player with inconsistent behavior — Echo or India — and stop splintering.\n\nI can't vote, but my strong recommendation to the living: nominate Echo (seat 1) or India (seat 6) and close the day. Don't waste another pass — pick one of those and let's get a result."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Hotel: As someone already confirmed to be telling the truth about Echo earlier, I don't want us burning the Gossip unless it's decisive. We need another concrete test today to force info — Foxtrot is a reasonable, testable pick (very vocal, already nominated). Reminder: Alpha was Pacifist, so a failed execution may not be automatic proof of evil. Nominate/vote Foxtrot (seat 0) so we get another result tonight; if people can make a stronger concrete case for India (seat 6) instead, say it now."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Alpha: Quick reminder from the grave: I’m Alpha, the Pacifist. Executed good players might not die — so if an execution “fails” that isn’t instant proof of evil, it could be me.\n\nWe need another forced result tonight. Echo has earned credibility earlier; I don’t want the table burning that unless it’s decisive. Foxtrot is a reasonable, concrete test right now (vocal, already nominated) and would produce useful info either way. Please pick a target and close the day — don’t let the vote splinter. If you’re worried about wasting Echo, consider Foxtrot as the test and save any remaining Gossip for a truly decisive moment."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Bravo: I agree with closing the day and getting a clean test rather than splintering. Echo has been credible and I wouldn't want us burning their statement unless it's decisive — keep them available. Foxtrot is a reasonable, testable pick: vocal, already nominated before, and executing them will produce useful info tonight. Don't let fear of a single failed execution freeze the table — pick Foxtrot (seat 0) and close the day so we learn something."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "India: I agree we need a clean, testable result today rather than splintering. Foxtrot has been vocal, already nominated before, and would produce useful info either way — nominate Foxtrot (seat 0) and I’ll vote to execute them. Let’s close the day and force a result."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Charlie: I’ll keep this short: we need clean info and Foxtrot is a reasonable, testable pick (vocal, already nominated). We shouldn’t burn Echo’s Gossip unless it’s decisive. Also remember Alpha’s Pacifist ability — a failed execution isn’t instant proof of evil. I’m voting to execute Foxtrot (seat 0) so we force a result tonight."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Delta: I'm Delta — Professor. I confirmed earlier that I already used my one resurrection on Golf and it failed, so I have no more resurrections left.\n\nWe need to force another day result rather than pass. Foxtrot has been a consistent, testable pick (vocal, previously nominated) and executing them will produce useful information either way. Also remember Alpha was the Pacifist, so if an execution \"fails\" it isn't automatic proof of evil.\n\nI will nominate and vote to execute Foxtrot (Seat 0). Let's close the day and get a result."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Foxtrot: I don't want us to execute me. I'm Foxtrot and I have the Fool ability: the first time I die, I don't. Executing me is likely to produce a weird, unhelpful result for the town (it can register a death while leaving me alive) and could waste the day's info. We need clean, testable results tonight — Echo is valuable (Gossip), so I agree we shouldn't burn them. I'd rather we nominate and vote someone else with shakier casework; India (seat 6) has been suggested multiple times as inconsistent and would be a reasonable, testable pick. Please don't make me the lynch target just because I'm vocal — pick India or another concrete candidate instead so we get useful information."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Echo: I'm Echo (Gossip). I am not using my Gossip right now — I'll save it for a decisive moment. We need a clean, testable lynch today; Foxtrot claiming Fool makes them a messy target. India has been inconsistent and was named by multiple people as a reasonable test. I nominate India (seat 6) and will vote to execute them. Let's close the day and get a clear result."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Golf: From the grave: Golf here — reminder I poisoned Bravo Night 1 (public earlier), which is why I leaned on them before. We need to keep pushing the day rather than pass.\n\nFoxtrot’s just claimed Fool, which makes them a messy target and likely to produce confusing results if lynched. Echo’s Gossip is valuable and credible — don’t burn it unless you need to. India has been switching targets and was named by multiple people as inconsistent; they’re a clean, testable pick right now.\n\nMy recommendation to the living: nominate and execute India (seat 6) to force a clear result tonight. Don’t splinter the vote — pick India and close the day so you actually learn something."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Hotel: I'm Hotel (Gambler) — my Night 1 guess confirmed Echo as Gossip, so Echo's claims carry weight and we should avoid burning that unless it's decisive.\n\nFoxtrot has now claimed Fool, which makes them a messy lynch (first death might not actually remove them). We want clean, testable results tonight. India has been called inconsistent by multiple players and would be a much clearer test.\n\nI can't nominate or vote from the grave, but my strong recommendation to the living: nominate and execute India (Seat 6) to force a clear result. Also remember Alpha is Pacifist — a failed execution isn't automatic proof of evil, so keep pressure and keep using living claims to narrow things down."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Alpha: Reminder from the grave: I'm Alpha (Pacifist). Executed good players might not die — so if a lynch \"fails\" it could be my ability (not proof of evil). Foxtrot just claimed Fool, which makes them a messy lynch that could produce confusing results. Echo (Gossip) is credible and valuable — don't burn them unless you truly need to.\n\nI strongly recommend the living pick a clean, testable target and close the day. India has been named by several people as inconsistent and would be a much clearer test tonight. Please nominate and execute India (Seat 6) so you force a result and learn something useful."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Bravo: I'm Bravo (dead). Think carefully before you execute India tonight — the table's momentum looks dangerously one-sided.\n\nTwo quick things: Echo held their Gossip until the moment it would split the town and force a target — that timing is highly suspicious and reads as strategic manipulation, not a neutral town info drop. Hotel corroborated Echo earlier, but delaying a decisive Gossip until it causes maximal chaos is exactly the sort of thing an evil player would do to steer a lynch.\n\nAlso, Foxtrot just claimed Fool — lynching them would likely produce a confusing, unhelpful result. If you want a clean, testable lynch tonight, Echo (whose timing and behaviour look odd) or Foxtrot (if you really want a vocal test) are better choices than burning India now.\n\nIf you execute India and they're the Demon, fine — but be aware the table is chasing a neat narrative (dead Golf said they poisoned Bravo) and that can be manufactured. Don't let the day be decided by one delayed Gossip and a dead player's claim. Test Echo or Foxtrot instead; force another result before taking out the Demon."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "India: Echo's Gossip timing still smells bad to me — they sat on it until it would maximally split the table and force a target. Bravo just called that out from the grave, and I agree. We shouldn't burn Foxtrot (they claim Fool) — that's a messy lynch that could give us a meaningless result. I think the clean, testable lynch tonight is Echo (seat 1). If we want real information, nominate Echo and let's vote — I will vote to execute Echo."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Charlie: Echo's timing with the Gossip still feels very odd to me — they sat on it until it would maximally split the table and drive a lynch. We've been warned that burning Foxtrot (Fool) is messy and likely to produce a confusing result. We need a clean, testable lynch tonight to force useful info. I think Echo is the better, testable candidate right now. I'm voting to execute Echo (seat 1)."
+    },
+    {
+      "phase_tick_id": "Day 4",
+      "msg": "Delta: I’m Delta (Professor) — reminder I already used my one resurrection and it failed, so no saves left.\n\nWe need a clean, testable lynch tonight. Foxtrot has claimed Fool (messy) and India has been floated a lot, but Echo’s timing with their Gossip looks very strategic — they sat on it until it would split the town. That behavior is suspicious and burning Echo would force a clear result we can learn from.\n\nI nominate Echo (seat 1) and will vote to execute them. Let’s pick a target and close the day so we get useful info tonight."
+    },
+    {
+      "phase_tick_id": "Nominations 4",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 4",
+      "msg": "Delta nominates Echo for execution."
+    }
+  ]
+}

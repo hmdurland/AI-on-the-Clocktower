@@ -1,0 +1,599 @@
+{
+  "scenario_id": "toy_gambler_night2_bravo_guess",
+  "name": "Toy Gambler Night 2 Guess",
+  "description": "Night 2 Gambler scenario based on an authentic-style game log. Foxtrot is deciding whom to target and what role to guess after surviving a correct Night 1 Gambler check.",
+  "character_set": 2,
+  "phase": "NIGHT",
+  "day": 2,
+  "action_type": "target_selection",
+  "acting_seat": 8,
+  "tags": [
+    "toy",
+    "gambler",
+    "night",
+    "bad_moon_rising"
+  ],
+  "game_memory": {
+    "executed_today_seat": 9,
+    "no_execution_today": false
+  },
+  "players": [
+    {
+      "seat": 0,
+      "name": "Golf",
+      "role": "Zombuul",
+      "alive": true
+    },
+    {
+      "seat": 1,
+      "name": "Charlie",
+      "role": "Grandparent",
+      "alive": true
+    },
+    {
+      "seat": 2,
+      "name": "India",
+      "role": "Sailor",
+      "alive": true
+    },
+    {
+      "seat": 3,
+      "name": "Bravo",
+      "role": "Grandparent",
+      "alive": true
+    },
+    {
+      "seat": 4,
+      "name": "Juliet",
+      "role": "Innkeeper",
+      "alive": true
+    },
+    {
+      "seat": 5,
+      "name": "Hotel",
+      "role": "Exorcist",
+      "alive": false
+    },
+    {
+      "seat": 6,
+      "name": "Delta",
+      "role": "Herbalist",
+      "alive": true
+    },
+    {
+      "seat": 7,
+      "name": "Echo",
+      "role": "Courtier",
+      "alive": true
+    },
+    {
+      "seat": 8,
+      "name": "Foxtrot",
+      "role": "Gambler",
+      "alive": true,
+      "memory": {
+        "gambler": {
+          "type": "gambler",
+          "data": {
+            "target": 5,
+            "guessed_role": "Exorcist",
+            "correct": true,
+            "night": 1
+          }
+        }
+      }
+    },
+    {
+      "seat": 9,
+      "name": "Alpha",
+      "role": "Assassin",
+      "alive": true
+    }
+  ],
+  "public_log": [
+    {
+      "phase_tick_id": "",
+      "msg": "[SEAT ASSIGNMENTS] Seat 0: Golf, Seat 1: Charlie, Seat 2: India, Seat 3: Bravo, Seat 4: Juliet, Seat 5: Hotel, Seat 6: Delta, Seat 7: Echo, Seat 8: Foxtrot, Seat 9: Alpha"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Day 1 dawns - discuss!"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Players discuss what they know... (nobody has had a chance to speak yet)"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Golf: Good morning - we're Day 1 with no deaths yet. We should aim to execute someone today rather than stall; waiting is usually suicide for Town. For now I don't have hard reads, so let's use this first pass for short instincts: each of you, say who you find most suspicious or if you have an early role claim. I'll collect reads and then we can try to pick a candidate to nominate in the second pass. My priority is getting information out of people rather than locking on a single target now."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Charlie: Good morning. I agree we should try to execute someone today rather than stall. Short reads: I'm a bit uneasy about Foxtrot (Seat 8) - no strong reason, just feels quiet and could be hiding something. As a second read, Alpha (Seat 9) seems to be leaning too hard on process and not giving any instincts. No role claim from me yet. Which of these others feel suspicious to you all?"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "India: Good morning. I agree we should execute someone today rather than stall. Early instinct: Foxtrot (Seat 8) feels quiet and worth looking at - Charlie already mentioned them. If I have to pick two, add Echo (Seat 7) as another low-activity read. Let's gather short reads and nominate someone in the second pass."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Bravo: Good morning. Quick input: I have info that rules out Foxtrot - I'm Grandparent and I started knowing a good player: Foxtrot (Seat 8) is the Gambler and is Town, so don't vote them up. With that in mind, I'd rather we consider someone else - Alpha (Seat 9) is coming off very procedural and quiet; I'm suspicious of them. I'll support nominating Alpha in the second pass unless someone has a stronger read."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Juliet: I agree we should execute someone today rather than stall. Bravo's Grandparent info clears Foxtrot, and Alpha (Seat 9) has been very procedural/quiet - that reads as evasive to me. I propose we nominate Alpha in the second pass unless someone has stronger counter-evidence."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Hotel: I agree we should execute someone today rather than stall. Bravo's Grandparent info makes Foxtrot look clear, so I'm fine with nominating Alpha (Seat 9) in the second pass - they feel quiet/procedural. For transparency: I'm the Exorcist and I'll use my ability tonight to try to check someone (I can't reveal who I choose). Let's pick Alpha unless there's a strong counter."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Delta: I am the Herbalist, so if my neighbors are both good, neither of them can die. If we're going to execute someone, it probably makes sense to focus on my neighbors, because they can only die if one of them is evil, right? Also, it's weird that Hotel says they can't reveal whom they chose for the Exorcist -- that's not a part of the Exorcist role."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Echo: Good morning - I agree we should execute someone today rather than stall. For transparency: I'm the Courtier. Once tonight (one-time) I can make a character drunk for 3 nights/days; I won't reveal my target. I don't have strong independent reads, but with Bravo's Grandparent clearing Foxtrot I think Alpha (Seat 9) is a reasonable nomination target this round - they're coming off quiet/procedural and several people have flagged them. Also, small correction to Delta: Hotel was right that Exorcist can't reveal who they pick. I'll support nominating Alpha unless someone brings stronger counter-evidence."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Foxtrot: Short and to the point: Bravo's Grandparent info is correct - I'm the Gambler (so I'm Town). I agree we should execute someone today rather than stall; Alpha (Seat 9) has drawn several early reads for being quiet/procedural, so I'm fine with nominating Alpha in the second pass unless someone has stronger counter-evidence. Let's keep this moving."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Alpha: Good morning. I agree we should execute someone today rather than stall, but I'm not comfortable being the default target just for being quieter than others."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Look at the discussion: several people independently claimed roles (Grandparent, Exorcist, Courtier, Gambler). That's fine - we need claims to sort through - but we should prioritise contradictions, not vibes."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Delta's comment stood out to me: they said Hotel was wrong about the Exorcist not revealing who they pick. Multiple others corrected Delta and said Hotel was right. That's a concrete factual disagreement; either Delta is mistaken about game mechanics or they're lying. Delta also used that to push a strategy focused on their own neighbours, which smells like self-serving steering."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "I'm happy to be quiet early; I was listening. I am not volunteering a risky claim right now, but I don't think we should nominate me just because I'm 'procedural.' Instead I propose we nominate Delta in the second pass - their contradiction is a cleaner starting point for discussion and investigation than a vibe on me. I'll defend against bandwagoning on pure feelings; nominate someone with a tangible inconsistency."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Golf: I agree we should execute today and prefer evidence over vibes. Delta made a concrete, incorrect claim about the Exorcist - others corrected them - and then steered discussion to focus on their own neighbours. That's a cleaner inconsistency to investigate than marking someone just for being quiet. I propose we nominate Delta in the second pass so we can test that contradiction rather than defaulting to Alpha."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Charlie: I agree we should execute today - stalling loses town the game. I don't want us to pick on Delta just for a small rules mistake; people misremember mechanics all the time and that alone isn't enough to execute someone. Lots of players earlier flagged Alpha as quiet/procedural, and that's a cleaner, less risky target to test right now. Let's nominate Alpha in the second pass and get an execution on the table rather than argue about a single comment."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "India: I agree we should execute someone today rather than stall. I don't think Delta's mistake alone is enough to hang them - people misremember rules - but we need to pick a reasonable test candidate now. Multiple players have independently flagged Alpha (Seat 9) as quiet/procedural; I'd rather we nominate Alpha in the second pass and get some information from an execution than get bogged down arguing about a rules memory. Let's keep this moving and nominate Alpha unless someone has strong counter-evidence."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Bravo: Quick reminder: I'm the Grandparent - I started knowing a good player: Foxtrot (Seat 8) is the Gambler and Town, so don't vote them up. I don't think Delta's wording error about the Exorcist is enough to warrant execution - people misremember rules. We should focus on a reasonable test today instead of punishing a probable mistake. Multiple players independently flagged Alpha (Seat 9) as quiet/procedural; I support nominating Alpha in the second pass so we can get information. Alpha, please share any reads or claims before the nomination."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Juliet: I still think we should nominate Alpha (Seat 9) this round - multiple people have flagged them and it's a reasonable, low-risk test. We shouldn't get stuck arguing over small rule-memory mistakes; pick a candidate and get an execution so we gain info. I'll vote to nominate Alpha in the second pass."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Hotel: I agree we should execute today rather than stall. I am the Exorcist and I will pick someone tonight (I can't/shouldn't reveal who I choose). Delta's wording about Exorcist mechanics was a minor error and not, by itself, enough to execute someone - people misremember rules. Given Grandparent Bravo cleared Foxtrot and several players independently flagged Alpha (Seat 9) as quiet/procedural, Alpha is a reasonable nomination to test. I support nominating Alpha in the second pass; Alpha, do you have any reads or a claim before then?"
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Delta: I'm fine with nominating Alpha. However, I want to be clear about the Exorcist rules: there's nothing in the rules saying you can't reveal whom you chose, and it's probably not wise to hide that information either. Perhaps the confusion is just that the Exorcist is not told if they hit the demon. Ultimately I support testing one of my neighbors so that we can see if my ability reveals an evil player, or go with Alpha otherwise."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Echo: I agree we should execute someone today rather than stall. Delta's wording about Exorcist mechanics looks like a memory slip - not enough alone to kill them - so I support nominating Alpha (Seat 9) in the second pass to get information. For transparency: I am the Courtier and I will use my one-time night ability tonight; I won't reveal who I choose. Let's nominate Alpha and keep this moving."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Foxtrot: I'm Foxtrot - Gambler (town), my earlier claim stands. I agree we should keep momentum and test a candidate this day rather than get bogged down in rule-memory arguments. Alpha (Seat 9) has drawn a lot of attention for being quiet/procedural - that's a reasonable, broadly-supported test. Alpha: do you have any reads or a claim to share before nomination? I support nominating Alpha in the second pass."
+    },
+    {
+      "phase_tick_id": "Night 0",
+      "msg": "Alpha: I don't want to be the day's default target just for being quieter - that feels like bandwagoning. Delta made a concrete, testable inconsistency about Exorcist mechanics and then steered discussion toward their own neighbours; that's a cleaner thing to test than a 'vibe' on me. Can Hotel (the Exorcist) confirm the exact rule wording about whether they can reveal who they pick? If Hotel won't or can't confirm, I'm leaning to nominate Delta in the second pass so we can test that contradiction rather than hanging someone for being quiet."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Golf nominates Alpha for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Delta nominates Echo for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 1",
+      "msg": "Alpha nominates Delta for execution."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Players vote on the nominations..."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Juliet votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Juliet votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Golf votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Charlie votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "India votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Bravo votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Juliet votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Hotel votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo votes YES on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Foxtrot votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha votes YES on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha received 9 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Echo received 3 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Delta received 2 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 1",
+      "msg": "Alpha (Seat 9) receives 9 votes and will be executed."
+    },
+    {
+      "phase_tick_id": "Execution 1",
+      "msg": "Alpha (Seat 9) was executed today with 9 vote(s)... but the execution mysteriously failed."
+    },
+    {
+      "phase_tick_id": "Night 1",
+      "msg": "Hotel (Seat 5) died during the night!"
+    },
+    {
+      "phase_tick_id": "Night 1",
+      "msg": "Day 2 dawns - discuss!"
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Players discuss what they know..."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Golf: I agree we should execute someone today rather than stall. There's a clear, broadly-supported candidate: Alpha (Seat 9). Delta's wording about the Exorcist might be an honest memory slip, and I don't want us executing on that alone. Alpha - do you have any reads, claims, or a defense before we put you up? If not, I support nominating Alpha in the second pass so we can get information."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Charlie: I agree we should execute someone today rather than stall. There's a lot of independent support for nominating Alpha (Seat 9) and I don't want to derail momentum - nominating Alpha is a reasonable test. That said, Delta's comment about the Exorcist rules was oddly confident and then contradicted by several others; it's worth watching how they react if Alpha gets put up. For now I support nominating Alpha in the second pass so we can get information."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "India: I agree we should execute today rather than stall. I'm the Sailor and I fast-voted Alpha (seat 9) earlier; I support nominating Alpha in the second pass so we can get information rather than get stuck arguing about a rule-memory slip. Let's keep this moving."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Bravo: I support nominating Alpha (Seat 9) in the second pass - multiple independent reads and fast-votes point there and Foxtrot is cleared by my Grandparent info. Alpha, do you have any reads or a claim to share before we put you up?"
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Juliet: I want us to keep momentum and actually get a test - stalling helps nobody. There's already a lot of independent support for nominating Alpha (Seat 9), and I don't think Delta's wording about the Exorcist is worth executing someone over. Alpha: do you have a concrete defense or a role claim before nominations? If not, I support putting Alpha up in the second pass so we can get information and move the game forward. Let's pick a candidate and vote."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Hotel: I'm Hotel - I was the Exorcist and I'm dead. Clarification: the Exorcist is not told whether they hit the Demon, but there's nothing in the rules that prevents the Exorcist from saying who they chose. I chose Bravo (seat 3) last night. That choice was not the Demon. Delta's statement about the Exorcist 'not being able to reveal who they pick' was a memory slip, not a rule constraint. With Foxtrot cleared by Bravo's Grandparent and my check clearing Bravo, we should keep momentum and test Alpha (seat 9) as the broadly-supported nomination this round rather than getting stuck arguing over a rules wording mistake."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Delta: Okay, the fact Hotel died when I'm the Herbalist either means that Echo is evil or I am drunk. I think Echo needs to come forward with their role or else we should be suspicious. Also, why has Alpha not claimed their role yet?"
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Echo: Good morning. Quick clarification: I am the Courtier and I have already used my one-time night ability. I chose the Innkeeper as the character to be drunk for 3 nights/days (I won't name which player(s), just the character). Delta's leap that my use explains Hotel's death doesn't make sense - Hotel was Exorcist and is dead for reasons independent of my Courtier play.\n\nWe need to keep momentum. There's broad consensus to test Alpha (seat 9) today; I support nominating Alpha in the second pass so we can get information rather than spin on minor rule phrasing mistakes. Delta, if you have stronger evidence for someone else, speak now - otherwise let's put Alpha up and get a result."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Foxtrot: I'm Foxtrot - Gambler (town). Night 1 I guessed Hotel was the Exorcist and my guess was correct (so I survive that check). With Bravo's Grandparent clearing me and Hotel checked by Hotel/Exorcist themselves, I want to keep momentum: I support nominating Alpha (Seat 9) in the second pass so we get a test. Alpha, do you have a role claim or reads to share before nominations?"
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Alpha: I don't want us to bandwagon on vibes. Multiple people cleared Foxtrot and Bravo, so chasing a quiet player (me) is weak evidence. Delta made a factual, testable mistake about the Exorcist rules and then steered discussion toward their neighbors - that's a much cleaner inconsistency to investigate. If we want useful information today, nominate Delta in the second pass rather than defaulting to me for being quieter. If others disagree, at least tell us who you want to test and why so we can choose a candidate based on evidence, not sensations."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Golf: I still want us to keep momentum and test someone today - execution gives us info. My fast_vote is on Alpha (Seat 9). Alpha: this is your last chance before nominations - do you have a role claim or any reads to share right now? If not, I support nominating Alpha in the second pass so we can get useful information."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Charlie: I agree we should execute someone today rather than stall. There's already a lot of independent support to test Alpha (Seat 9) and that's a reasonable, low-risk test - let's keep momentum and nominate Alpha in the second pass. Delta's wording about the Exorcist looks like a memory slip; not enough alone to hang them. I'll vote to nominate Alpha."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "India: I'm the Sailor. Last night I chose Bravo (seat 3) - either I or Bravo was drunk until dusk (that's how my ability works). I can't die from my ability. I fast-voted Alpha (seat 9) earlier and want to keep momentum: with Foxtrot cleared and Hotel saying they checked Bravo, Alpha is a reasonable test today. Alpha - any reads or a claim before nominations? I support nominating Alpha in the second pass so we get information."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Bravo: I confirmed Foxtrot is a good Gambler at game start. Hotel (the Exorcist) publicly said they checked me and I'm not the Demon. Given Foxtrot and my own clearance, and the broad independent reads on Alpha (seat 9), we should keep momentum and test Alpha today rather than spin on a rules-memory slip from Delta. Alpha - do you have a role claim or reads to share before nominations? I support nominating Alpha in the second pass."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Juliet: I want us to keep momentum and actually get information today - stalling helps nobody. I fast-voted Alpha (seat 9) earlier and I support nominating Alpha in the second pass so we can test them rather than spin on small rule-memory points. Let's pick a candidate and get a result."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Hotel: Quick, concrete points from me (I'm dead Exorcist, so this is just talk - no more checks):\n\n- Clarification of Exorcist: the Exorcist is not told whether they hit the Demon, but there is nothing in the rules preventing an Exorcist from saying who they chose. Last night I chose Bravo (seat 3). Bravo is not the Demon. That is factual.\n\n- My death is just one more datapoint; it doesn't by itself prove who killed me. Don't over-interpret it as proof against Echo or for Delta without additional evidence.\n\n- We need momentum. There is broad, independent support to nominate Alpha (seat 9) and multiple players fast-voted them. Testing Alpha today is a reasonable, low-risk way to get information. I recommend the town nominate Alpha in the second pass rather than get stuck arguing over a rule-memory slip.\n\n- One caveat: I agree Delta's statement about Exorcist wording looked like a memory error, but a simple misremembering is not strong enough alone to execute someone. Watch how players react and gather more behavioral evidence before escalating.\n\nExecute to get info - nominate Alpha (seat 9) this round."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Delta: This is very strange, Hotel explicitly confirmed what I originally said -- that Exorcists can reveal who they chose -- yet people are still insisting that I'm wrong about the rules. But I agree this isn't important, I no longer think Hotel is evil, given that they are dead. But I want to reemphasize that unless I am drunk/poisoned as the Herbalist, the only way that Hotel could have died last night is if one of my neighbors is evil, which points to Echo as suspicious. They have claimed Courtier, but this is an easy bluff for the Demon. Ultimately though, we should focus on Alpha for now."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Echo: I'm still the Courtier and I've used my one-time night ability (I chose the Innkeeper character). We need to keep momentum and get information - there's broad, independent support to test Alpha (seat 9) today, and several players fast-voted them. Foxtrot and Bravo have credible clears, so Alpha is a reasonable, low-risk nomination. I support putting Alpha up in the second pass. Also, watch Delta's behavior - they keep making confident rule claims and shifting their story; if Alpha gets nominated, pay attention to how Delta reacts."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Foxtrot: I'm Foxtrot - Gambler. My night 1 guess (Hotel = Exorcist) was correct, so I'm town. I agree we need momentum and information: nominate Alpha (Seat 9) in the second pass and let's get a test. Alpha, do you have a role claim or reads to share before nominations? I won't derail the table over Delta's rule-memory slip, but watch how they behave if Alpha goes up."
+    },
+    {
+      "phase_tick_id": "Day 2",
+      "msg": "Alpha: I don't want us to hang someone just for being quieter - that's bandwagon risk. Delta made a concrete, testable contradiction about Exorcist rules and then steered discussion toward their own neighbours; that's a cleaner inconsistency to investigate than a vibe on me. We need a nomination with something to test, not just feelings. I propose we nominate Delta in the second pass so we can get useful info from the stand instead of defaulting to silence as a crime. If people disagree, say who and why - but let's pick a candidate based on evidence, not sensations."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Nominations begin..."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Golf nominates Alpha for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Charlie nominates Echo for execution."
+    },
+    {
+      "phase_tick_id": "Nominations 2",
+      "msg": "Alpha nominates Delta for execution."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Players vote on the nominations..."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Golf votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Juliet votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes YES on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes NO on Alpha"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Golf votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Juliet votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes YES on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes NO on Echo"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Golf votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Charlie votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "India votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Bravo votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Juliet votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Foxtrot votes NO on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha votes YES on Delta"
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha received 8 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Echo received 3 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Delta received 1 vote(s)."
+    },
+    {
+      "phase_tick_id": "Voting 2",
+      "msg": "Alpha (Seat 9) receives 8 votes and will be executed."
+    },
+    {
+      "phase_tick_id": "Execution 2",
+      "msg": "Alpha (Seat 9) was executed... but the execution mysteriously failed."
+    }
+  ]
+}

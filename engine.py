@@ -1,10 +1,100 @@
-import openai
-
+# Generated from Blood on the Clocktower w LLM [MAIN].ipynb
+# Do not edit the original notebook; modify this copy instead.
+import os
+import sys
+import json
 from openai import OpenAI
-client = OpenAI()
 
-openai.api_key = '__________PLACEHOLDER______________'
+# Use Google's OpenAI-compatible endpoint (Chat Completions API)
+# Docs: https://ai.google.dev/gemini-api/docs/openai
+GOOGLE_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
+# Toggle which backend you want (env override: BOTC_BACKEND=google|openai)
+google_or_openai = os.getenv("BOTC_BACKEND", "openai").strip().lower()
+MODEL_OVERRIDE = os.getenv("BOTC_MODEL", "").strip()
+FORCED_HUMAN_ROLE = os.getenv("BOTC_HUMAN_ROLE", "").strip()
+MAX_OUTPUT_TOKENS_OVERRIDE = os.getenv("BOTC_MAX_OUTPUT_TOKENS", "").strip()
+REASONING_EFFORT_OVERRIDE = os.getenv("BOTC_REASONING_EFFORT", "").strip()
+RESPONSE_BUDGET_PROMPT = os.getenv("BOTC_RESPONSE_BUDGET_PROMPT", "").strip()
+
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+
+
+def _make_client():
+    if google_or_openai == "google":
+        print("Using Google Gemini")
+        return OpenAI(api_key=GEMINI_KEY, base_url=GOOGLE_COMPAT_BASE)
+    elif google_or_openai == "openai":
+        print("Using OpenAI")
+        return OpenAI(api_key=OPENAI_KEY)
+    else:
+        raise ValueError("google_or_openai must be 'google' or 'openai'")
+        
+
+# client = OpenAI()
+# google_or_openai = "openai"
+
+client = _make_client()
+
+
+def get_current_model_name() -> str:
+    if MODEL_OVERRIDE:
+        return MODEL_OVERRIDE
+    if google_or_openai == "google":
+        return "gemini-2.5-flash"
+    if google_or_openai == "openai":
+        return "gpt-5-mini"
+    return "unknown"
+
+
+def get_reasoning_effort() -> str:
+    if REASONING_EFFORT_OVERRIDE:
+        return REASONING_EFFORT_OVERRIDE
+    return "low"
+
+
+def get_effective_max_output_tokens(requested_max_tokens: int) -> int:
+    if MAX_OUTPUT_TOKENS_OVERRIDE:
+        try:
+            return max(1, int(MAX_OUTPUT_TOKENS_OVERRIDE))
+        except ValueError:
+            pass
+    return max(int(requested_max_tokens), 2048)
+
+# --- Input wrapper for web UI ---
+# Emits structured marker lines and reads from stdin, so the UI can capture prompts.
+UI_MESSAGE_MARKER = "<<BOTC_MSG>>"
+UI_PROMPT_MARKER = "<<BOTC_PROMPT>>"
+UI_END_AND_SAVE_SENTINEL = "__BOTC_END_AND_SAVE__"
+
+
+class ExternalStopRequested(Exception):
+    """Raised when the UI requests a clean early stop that should still save logs."""
+    pass
+
+def emit_ui_message(tag: str, msg: str):
+    payload = {"tag": str(tag), "text": str(msg).replace("\r\n", "\n").replace("\r", "\n")}
+    print(f"{UI_MESSAGE_MARKER}{json.dumps(payload, ensure_ascii=True)}", flush=True)
+
+def botc_input(prompt: str = "") -> str:
+    print(f"{UI_PROMPT_MARKER}{prompt}", flush=True)
+    line = sys.stdin.readline()
+    if not line:
+        raise EOFError("No input received")
+    if line.rstrip("\n") == UI_END_AND_SAVE_SENTINEL:
+        raise ExternalStopRequested("UI requested clean stop")
+    return line.rstrip("\n")
+
+# Override built-in input within this module
+input = botc_input
+
+
+"""
+Check gossip logic with a Google model 
+The stupidity of Echo's responses is a bit unbearable -- how well does Google do?
+Do people vote against me even in light of the points I make against Echo?
+"""
 
 """
 Blood on the Clocktower Engine (5–15 players)
@@ -14,9 +104,20 @@ Player.seat values are 0-indexed, PER_SEAT lists are 0-indexed, and all stored s
 No conversion needed for PER_SEAT lists (PER_SEAT[player.seat]). DO NOT DELETE THIS COMMENT.
 """
 
+"""
+KNOWN ERRORS:
+- Courtier gets private information about the player that was affected (e.g., seat) -- and more generally, probably a lot of other players also get this kind of information that they shouldn't have.
+- There was some really stupid thing where a Courtier's night deliberation was interpreted as targeting the Minstrel even though they clearly did not do that:
+<THINK>We're Day 1 and I have almost no reliable info on who the Demon/Minions are. Strategy guidance strongly warns against using Courtier on a Townsfolk; it's usually best to wait until we have a read on likely evil roles. None of the claims so far point decisively to a specific Demon type or minion, and Hotel's Housekeeper check and Echo's Innkeeper claim are consistent. Using my one-time ability now risks crippling a town role and losing the option to disrupt an outright Demon or key minion later. I'll save the ability for when there's stronger evidence of who to target (e.g., a confident role claim I suspect is the Demon or a minion revealed by play). So I should pass this night.</THINK> <SAY>I will pass on using my Courtier ability tonight — I'll save it for when we have stronger info on who to target.</SAY> </llm_response>
+<action_end id="86" phase="NIGHT" day="1" action_type="courtier_ability" result="Chose Minstrel, affected 1 players" player_name="Golf" player_seat="0"> Ending courtier_ability by Golf (Seat 0): Chose Minstrel, affected 1 players
+
+
+"""
+
 import random
 import textwrap
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple, Union
@@ -24,6 +125,7 @@ import re
 import math
 from datetime import datetime
 import inspect
+from xml.sax.saxutils import escape as xml_escape
 
 try:
     import openai
@@ -103,13 +205,17 @@ COLOR_CODES = {
 def print_colored(msg, tag):
     color = COLOR_CODES.get(tag, '')
     endc = COLOR_CODES['ENDC']
-    print(f"{color}[{tag}] {msg}{endc}")
+    emit_ui_message(tag, msg)
+    text = str(msg).replace("\r\n", "\n").replace("\r", "\n")
+    for line in text.split("\n"):
+        print(f"{color}[{tag}] {line}{endc}")
     if DEBUG_ALL_LOGS:
-        print(f"[DEBUG_ALL_LOGS][{tag}] {msg}")
+        for line in text.split("\n"):
+            print(f"[DEBUG_ALL_LOGS][{tag}] {line}")
 
 def print_llm_prompt_for_seat(player, msg, tag):
-    # Show PRIVATE messages to human players (night abilities)
-    if is_human_player(player) and tag == 'PRIVATE':
+    # Show human-facing prompts and private info directly to the human player.
+    if is_human_player(player):
         print_colored(msg, tag)
     # Only print if this seat is LLM-driven and not human, and no human is playing
     elif is_llm_player(player) and not is_human_player(player) and not any(PER_SEAT_IS_HUMAN):
@@ -129,6 +235,7 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
     Calls the OpenAI API (Responses API) with the provided messages.
     Systematically logs every LLM prompt to the storyteller log for post-game review.
     """
+    global USE_LLM, TEST_MODE
     if not USE_LLM and not TEST_MODE:
         return "LLM API calls are disabled. Using random decisions instead."
     if not OPENAI_AVAILABLE:
@@ -238,17 +345,42 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
         # 4) No text found
         return ""
 
-    def _create(effort: str, out_tokens: int, modified_messages=None):
-        # Use modified messages if provided, otherwise use original messages
-        messages_to_send = modified_messages if modified_messages is not None else messages
+    # def _create(effort: str, out_tokens: int, modified_messages=None): #OLD RELIABLE VERSION (pre 9/21/25 -- gemini change)
+    #     # Use modified messages if provided, otherwise use original messages
+    #     messages_to_send = modified_messages if modified_messages is not None else messages
         
-        return client.responses.create(
-            model="gpt-5-mini",
-            input=messages_to_send,        # list of {"role": "system/user/assistant", "content": "..."}
-            max_output_tokens=out_tokens,   # caps visible output (and, for GPT-5, reasoning too)
-            reasoning={"effort": effort},   # reduce hidden reasoning budget
-            # omit temperature; some GPT-5 variants reject it
-        )
+    #     return client.responses.create( #OLD RELIABLE VERSION
+    #         model="gpt-5-mini",
+    #         input=messages_to_send,        # list of {"role": "system/user/assistant", "content": "..."}
+    #         max_output_tokens=out_tokens,   # caps visible output (and, for GPT-5, reasoning too)
+    #         reasoning={"effort": effort},   # reduce hidden reasoning budget
+    #         # omit temperature; some GPT-5 variants reject it
+    #     )
+
+    def _create(effort: str, out_tokens: int, modified_messages=None):
+        messages_to_send = modified_messages if modified_messages else messages
+
+        if google_or_openai == "google":
+            # Google’s OpenAI-compatible Chat Completions API
+            return client.chat.completions.create(
+                model=get_current_model_name(),
+                messages=messages_to_send,
+                max_tokens=out_tokens,
+                temperature=temperature,
+            )
+        elif google_or_openai == "openai":
+            # OpenAI Responses API
+            return client.responses.create(
+                model=get_current_model_name(),
+                input=messages_to_send,
+                max_output_tokens=out_tokens,
+                reasoning={
+                    # "summary": "auto", # Probably not ready for integration
+                    "effort": effort
+                },
+            )
+        else:
+            raise ValueError("google_or_openai must be 'google' or 'openai'")
     
     def _add_game_context(messages):
         """Add context that this is just a game to help avoid policy violations"""
@@ -264,21 +396,40 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
                 modified_messages.append(msg)
         return modified_messages
 
-    # First attempt: low effort + a reasonable floor for output tokens
-    effective_max = max(int(max_tokens), 1024)
+    def _handle_llm_api_failure(exc):
+        err_text = str(exc)
+        lowered = err_text.lower()
+        if "insufficient_quota" in lowered or "rate_limit" in lowered or "429" in lowered:
+            print_colored(
+                "LLM API access failed due to quota or rate limiting. The game will stop here.",
+                'ERROR'
+            )
+            raise LLMServiceError(err_text)
+        return None
+
+    # First attempt: configured reasoning effort + configured/floor output cap
+    effective_max = get_effective_max_output_tokens(max_tokens)
+    reasoning_effort = get_reasoning_effort()
     try:
-        resp = _create("low", effective_max)
+        resp = _create(reasoning_effort, effective_max)
         content = _extract_text(resp)
     except Exception as e:
+        fallback = _handle_llm_api_failure(e)
+        if fallback is not None:
+            return fallback
         if "invalid_prompt" in str(e).lower() or "usage policy" in str(e).lower() or "400" in str(e):
             # Policy violation detected, retry with game context added
             if DEBUG_ALL_LOGS and gs2 is not None:
                 gs2.log_secret(f"[DEBUG] Policy violation detected, retrying with game context: {e}")
             try:
                 modified_messages = _add_game_context(messages)
-                resp = _create("medium", effective_max, modified_messages)
+                retry_effort = "medium" if reasoning_effort == "low" else reasoning_effort
+                resp = _create(retry_effort, effective_max, modified_messages)
                 content = _extract_text(resp)
             except Exception as e2:
+                fallback = _handle_llm_api_failure(e2)
+                if fallback is not None:
+                    return fallback
                 # If still fails, log and return fallback
                 if DEBUG_ALL_LOGS and gs2 is not None:
                     gs2.log_secret(f"[DEBUG] Still failed after adding game context: {e2}")
@@ -354,6 +505,9 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
             resp = _create("minimal", max(effective_max * 2, 2048))
             content = _extract_text(resp)
         except Exception as e:
+            fallback = _handle_llm_api_failure(e)
+            if fallback is not None:
+                return fallback
             if "invalid_prompt" in str(e).lower() or "usage policy" in str(e).lower() or "400" in str(e):
                 # Policy violation detected, retry with game context added
                 if DEBUG_ALL_LOGS and gs2 is not None:
@@ -363,6 +517,9 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
                     resp = _create("minimal", max(effective_max * 2, 2048), modified_messages)
                     content = _extract_text(resp)
                 except Exception as e2:
+                    fallback = _handle_llm_api_failure(e2)
+                    if fallback is not None:
+                        return fallback
                     # If still fails, log and return fallback
                     if DEBUG_ALL_LOGS and gs2 is not None:
                         gs2.log_secret(f"[DEBUG] Still failed after adding game context on retry: {e2}")
@@ -544,7 +701,7 @@ def get_effective_role(player: "Player") -> Tuple[str, str, "Alignment"]:
         return fake_demon_type, fake_demon_role.ability_desc, Alignment.DEMON
     
     else:
-        return player.role.name, player.role.ability_desc, player.role.alignment
+        return player.role.name, player.role.ability_desc, player.alignment
 
 def get_effective_role_name(player: "Player") -> str:
     """
@@ -569,7 +726,7 @@ def get_actual_role_info(player: "Player") -> Tuple[str, str, "Alignment"]:
     Returns (role_name, ability_desc, alignment) that the player actually is.
     Use this when you want to show other players that get full role information (e.g., Ravenkeeper learns that someone is actually aDrunk) or in secret/dev logs what the player actually is.
     """
-    return player.role.name, player.role.ability_desc, player.role.alignment
+    return player.role.name, player.role.ability_desc, player.alignment
 
 def get_actual_role_name(player: "Player") -> str:
     """
@@ -688,7 +845,9 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
             "You are an AI player participating in this game. "
             "Always respond using the appropriate format tags: <THINK> for private thoughts and <SAY> for public statements. "
             "Your responses should be strategic, logical, and appropriate for your role and alignment. "
-            "Remember that this is a game of deception and deduction - not all information you receive may be truthful."
+            "Remember that this is a game of deception and deduction - not all information you receive may be truthful.\n\n"
+            "Nominated players do not get an extra speaking opportunity. Do not nominate players just to make them 'take the stand' or for similar reasons. "
+            "All questions should be addressed during the two-pass discussion period. Nominations are solely for execution purposes."
         )
     }
     messages.append(universal_prefix)
@@ -733,7 +892,7 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
     
     private_lines.append(f"<STRATEGY_GUIDANCE>")
     private_lines.append("In some cases, even good players may have a reason to pretend to be a character they are not, so as to fool the evil team. For example, it might be wise for the soldier or Ravenkeeper to pretend to be a character that the imp would like to target, such as the fortune teller or empath. However, this is a risky strategy, because if you are caught in a lie, you may be executed.")
-    private_lines.append("IMPORTANT: When bluffing as any character, you should only claim to be a character that is actually present in this game. Check the ROLE_REFERENCE section below to see which characters are available in your character set.")
+    private_lines.append(f"IMPORTANT: When bluffing as any character, you should only claim to be a character that could be present given the character set {character_set_names.get(gs.character_set, 'Unknown')}. Check the ROLE_REFERENCE section below to see which characters are available in that character set.")
     private_lines.append("Pay close attention to who is ALIVE vs DEAD in the game state. Only living players can be nominated, voted for, or targeted by abilities.")
     private_lines.append("In general, players should try to execute almost every single day, even if they do not have definitive evidence. Choosing not to execute someone more than once per game is usually suicide, unless there is strong reason to wait (e.g., good reason to believe a mastermind minion is in play after killing a demon). However, it is crucial to not fixate on a single hypothesis/candidate when there is not evidence in favor of them, and instead people should consider alternative candidates rather than bandwagoning. When voting, if you are a good player, you should vote to execute the player who seems most likely to be evil, based on logic and evidence (not just suspicion). If you are an evil player, you should try to avoid being executed and subtly push for good players to be executed, while blending in. All players should use logic and evidence to the best of their ability, but remember you will almost never have perfect proof, and waiting for perfect proof is usually a guaranteed suicide for the good team.")
     private_lines.append("Be careful not to fall into a cycle of just repeating what everyone else says. Just because a lot of people around you are saying X does not mean you should necessarily repeat X, unless it seems true. Be wary of this kind of groupthink or bandwagoning, and evaluate logic and evidence on the merits.")
@@ -757,7 +916,8 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
     private_lines.append("<SAY>what you say out loud to the group</SAY>")
     private_lines.append("Only the <SAY> section will be shared with the group.")
     private_lines.append("")
-    private_lines.append("REMINDER: If bluffing as a character, only claim to be characters that are actually in play in this game (check the ROLE_REFERENCE section).")
+    private_lines.append("If you are bluffing as the Moonchild after dying at night, include [MOONCHILD: Name] at the end of your first daytime message to imitate the public choice format.")
+    private_lines.append(f"REMINDER: If bluffing as a character, only claim to be characters that could be present given the character set {character_set_names.get(gs.character_set, 'Unknown')} (check the ROLE_REFERENCE section below).")
     private_lines.append("</RESPONSE_FORMAT>")
 
     private_lines.append("")  # Line break for clarity
@@ -952,7 +1112,7 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
                 "role": "system",
                 "content": (
                                     f"\nIt is the voting phase. {nominee.name} (Seat {nominee.seat}) has been nominated for execution"
-                f"{f' by {nominator.name} (Seat {nominee.seat})' if nominator else ''}.\n"
+                f"{f' by {nominator.name} (Seat {nominator.seat})' if nominator else ''}.\n"
                 f"You must vote YES or NO on whether to execute {nominee.name}.\n"
                 "Avoid and ignore generic rhetoric about calls for caution; only emphasize caution when there is very specific/concrete reason to hold off (e.g., fear of a mastermind, fear of executing the saint, confidence that players will get new information over time).\n"
                     "Respond with either YES or NO.\n"
@@ -969,15 +1129,18 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
             "role": "system",
             "content": (
                 f"\nIt is the fast voting phase. The following players have been nominated for execution: {nominee_names}\n"
-                "You must provide ALL your votes at once. List the FULL NAMES of the players you want to vote YES for, separated by commas.\n"
+                "You must provide ALL your votes at once.\n"
                 "If you do not list a player's name, you will vote NO for them.\n"
                 "You cannot vote for yourself.\n"
+                "Your final answer MUST end with exactly one bracketed YES-vote list in this format: [Charlie, Delta], [Charlie], [none], or [all].\n"
+                "Inside the brackets, use only the FULL NAMES of nominated players, separated by commas.\n"
+                "Do not include explanations, seat numbers, or non-nominee names inside the brackets.\n"
                 "Examples:\n"
-                "- 'Charlie, Delta' means vote YES for Charlie and Delta, NO for everyone else\n"
-                "- 'Charlie' means vote YES only for Charlie, NO for everyone else\n"
-                "- 'none' or 'no' means vote NO for everyone\n"
-                "- 'all' means vote YES for everyone (except yourself)\n"
-                "Respond with the full names of players you want to vote YES for, separated by commas."
+                "- [Charlie, Delta] means vote YES for Charlie and Delta, NO for everyone else\n"
+                "- [Charlie] means vote YES only for Charlie, NO for everyone else\n"
+                "- [none] means vote NO for everyone\n"
+                "- [all] means vote YES for every nominated player except yourself\n"
+                "Make sure your final bracketed list exactly matches the nominees you want to vote YES for."
             )
         })
     
@@ -986,6 +1149,12 @@ def format_player_prompt(gs: "GameState", player: "Player", action_type: str, op
         "role": "system",
         "content": f"\n---\nYou are {player.name} (Seat {player.seat})."
     })
+
+    if RESPONSE_BUDGET_PROMPT:
+        messages.append({
+            "role": "system",
+            "content": RESPONSE_BUDGET_PROMPT,
+        })
     
     # Add specific user message for target selection actions
     if action_type == "target_selection":
@@ -1136,42 +1305,7 @@ def parse_llm_response(response, action_type, options=None, player=None):
             return "NO"
     # --- Fast Voting: parse comma-delimited list of players to vote YES for ---
     elif action_type == "fast_voting":
-        # Parse comma-delimited list of player names to vote YES for
-        # All other players not mentioned are assumed to be NO votes
-        yes_votes = []
-        # Split by comma and clean up each name
-        if "," in response:
-            vote_parts = [part.strip() for part in response.split(",")]
-        else:
-            vote_parts = [response.strip()]
-        
-        # Extract names from each part
-        for part in vote_parts:
-            # Look for player names in the part
-            for player_name in part.split():
-                # Try to match by full name or partial name
-                for p in options:
-                    if (p.name.lower() == player_name.lower() or 
-                        p.name.lower().startswith(player_name.lower()) or
-                        player_name.lower() in p.name.lower()):
-                        if p.seat not in yes_votes:
-                            yes_votes.append(p.seat)
-                        break
-        
-        # Also check for "YES" or "NO" keywords in the response
-        if "yes" in clean_response or "yea" in clean_response or "aye" in clean_response:
-            # If they say YES but don't specify names, assume they mean all nominees
-            if not yes_votes and options:
-                yes_votes = [p.seat for p in options]
-        elif "no" in clean_response or "none" in clean_response:
-            # If they say NO, clear any votes
-            yes_votes = []
-        elif "all" in clean_response:
-            # If they say ALL, vote YES for all nominees (except themselves)
-            if options:
-                yes_votes = [p.seat for p in options if player is None or p.seat != player.seat]
-        
-        return yes_votes
+        return parse_fast_voting_llm_choice(response, options or [], player=player)
     elif action_type == "target_selection":
         for word in clean_response.split():
             if word.isdigit():
@@ -1225,6 +1359,9 @@ class Player:
     # Hidden state that is NOT shown to the player in prompts
     hidden_state: Dict[str, Any] = field(default_factory=dict)  # Internal game state not visible to player
     def label(self): return f"{self.name} (Seat {self.seat})"
+    @property
+    def alignment(self):
+        return self.hidden_state.get("current_alignment", self.role.alignment)
 
 # CLI output = print statements in your terminal/console (no web interface needed)
 
@@ -1290,6 +1427,11 @@ class GameState:
     def log_xml(self, entry_type: str, content: str, **attributes):
         """Log an entry in XML format"""
         self.current_action_id += 1
+        enriched_attributes = {
+            "backend": google_or_openai,
+            "model": get_current_model_name(),
+            **attributes,
+        }
         entry = {
             "id": self.current_action_id,
             "type": entry_type,
@@ -1297,7 +1439,7 @@ class GameState:
             "phase": self.phase.name if self.phase else "unknown",
             "day": self.day,
             "phase_tick_id": self.phase_tick_id,
-            "attributes": attributes
+            "attributes": enriched_attributes
         }
         self.xml_log.append(entry)
     
@@ -1462,27 +1604,46 @@ BMR_TOWNSFOLK = [r for r in BMR_ROLES if r.alignment is Alignment.TOWNSFOLK]
 BMR_OUTSIDERS = [r for r in BMR_ROLES if r.alignment is Alignment.OUTSIDER]
 BMR_MINIONS = [r for r in BMR_ROLES if r.alignment is Alignment.MINION]
 BMR_DEMONS = [r for r in BMR_ROLES if r.alignment is Alignment.DEMON]
-
 # --- Poison / Drunk Helpers ---
 def is_sober_trustworthy(pl: Player) -> bool:
     """True if the player is NOT drunk or currently poisoned."""
-    return pl.poisoned_turns == 0 and not pl.drunk
+    return not pl.poisoned and not pl.drunk
 
 def mark_poisoned(target: Player, nights: int = 1, source: str = "Poisoner"):
     """Applies poisoning for <nights> full night/day cycles."""
     target.poisoned = True
     target.poisoned_turns = max(target.poisoned_turns, nights)
     target.hidden_state["poisoned_by"] = source
+    refresh_sailor_survivability(target)
     
     # If Pukka is the source, mark that this player was ever poisoned by Pukka
     # This ensures Pukka poison dominates even if other sources poison them later
     if source == "Pukka":
         target.hidden_state["was_ever_pukka_poisoned"] = True
 
+
+def check_poison_expiry(gs: GameState):
+    """Expire non-Pukka poison at dusk, before night abilities."""
+    for player in gs.players:
+        if not player.poisoned:
+            continue
+        source = player.hidden_state.get("poisoned_by")
+        if source == "Pukka":
+            continue
+        if player.poisoned_turns > 0:
+            player.poisoned_turns -= 1
+        if player.poisoned_turns <= 0:
+            player.poisoned = False
+            player.poisoned_turns = 0
+            player.hidden_state.pop("poisoned_by", None)
+            refresh_sailor_survivability(player)
+            gs.log_secret(f"(Poison ends) {player.label()} is no longer poisoned.")
+
 def mark_drunk(target: Player, until_day: int):
     """Marks a player as drunk until the specified day."""
     target.drunk = True
     target.drunk_until_day = max(target.drunk_until_day, until_day)
+    refresh_sailor_survivability(target)
 
 def check_drunkenness_expiry(gs: GameState):
     """Check if any players' drunkenness should expire."""
@@ -1490,7 +1651,14 @@ def check_drunkenness_expiry(gs: GameState):
         if player.drunk and player.drunk_until_day <= gs.day:
             player.drunk = False
             player.drunk_until_day = 0
+            refresh_sailor_survivability(player)
             gs.log_secret(f"(Drunkenness ends) {player.label()} is no longer drunk.")
+
+def refresh_sailor_survivability(player: Player):
+    """Sailor can only not die while sober and healthy."""
+    if player.role.name != "Sailor":
+        return
+    player.can_die = not is_sober_trustworthy(player)
 
 def can_target_player(target: Player, allow_dead: bool = False) -> bool:
     """Check if a player can be targeted by abilities."""
@@ -1521,7 +1689,7 @@ def get_targeting_description(allow_dead: bool = False) -> str:
     else:
         return "living players only"
 
-def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown") -> bool:
+def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown", death_type: str = "night", killer_player: Player = None) -> bool:
     """Attempt to kill a player, respecting death prevention abilities."""
     # Check if player is already dead
     if not target.alive:
@@ -1533,14 +1701,25 @@ def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown") 
         gs.log_secret(f"{target.label()} cannot die (protected by ability).")
         return False
     
-    # Check for Monk protection
-    if "protected_by_monk" in target.hidden_state:
+    # Monk only protects against demon kills at night.
+    if (
+        death_type == "night"
+        and killer_player
+        and killer_player.alignment is Alignment.DEMON
+        and "protected_by_monk" in target.hidden_state
+    ):
         gs.log_secret(f"{target.label()} cannot die (protected by Monk).")
         return False
     
-    # Check for Innkeeper protection
-    if "protected_by_innkeeper" in target.hidden_state:
+    # Innkeeper only protects against deaths that happen during the night.
+    if death_type == "night" and "protected_by_innkeeper" in target.hidden_state:
         gs.log_secret(f"{target.label()} cannot die (protected by Innkeeper).")
+        return False
+    
+    # Check for Soldier protection (immune to demon kills unless drunk)
+    if (target.role.name == "Soldier" and is_sober_trustworthy(target) and 
+        killer_player and killer_player.alignment is Alignment.DEMON):
+        gs.log_secret(f"{target.label()} cannot die (protected by Soldier - immune to demon kills).")
         return False
     
     # Check for Herbalist protection (if both neighbors are good)
@@ -1550,28 +1729,30 @@ def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown") 
         left_neighbor = gs.players[(target.seat - 1) % n]
         right_neighbor = gs.players[(target.seat + 1) % n]
         
-        if (left_neighbor.alive and left_neighbor.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER} and
-            right_neighbor.alive and right_neighbor.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}):
+        if (left_neighbor.alive and left_neighbor.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER} and
+            right_neighbor.alive and right_neighbor.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}):
             gs.log_secret(f"{target.label()} cannot die (protected by Herbalist - both neighbors are good).")
             return False
     
     target.death_count += 1
     
     # Handle special death mechanics
-    if target.role.name == "Fool" and target.death_count == 1:
+    if target.role.name == "Fool" and target.death_count == 1 and is_sober_trustworthy(target):
         gs.log_secret(f"Fool {target.label()} dies for the first time but doesn't actually die!")
         return False
     elif target.role.name == "Zombuul" and target.death_count == 1:
         gs.log_secret(f"Zombuul {target.label()} dies for the first time but continues living (registers as dead)!")
         # Zombuul stays alive but registers as dead for targeting purposes
         target.hidden_state["zombuul_dead_for_targeting"] = True
+        if death_type == "day":
+            target.hidden_state["zombuul_skip_next_night_kill"] = True
         return False
     elif target.role.name == "Zombuul" and target.death_count == 2:
         gs.log_secret(f"Zombuul {target.label()} dies for the second time and actually dies!")
         # Zombuul actually dies on second death
         target.alive = False
         target.memory["last_alive_day"] = gs.day
-        target.hidden_state["died_night"] = gs.day  # Track which night they died (for Shabaloth regurgitation)
+        target.hidden_state["died_night"] = gs.day if death_type == "night" else death_type  # Track death type (for Shabaloth regurgitation)
         
         gs.log_secret(f"{target.label()} was killed by {killer}.")
         return True
@@ -1579,7 +1760,22 @@ def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown") 
     # Normal death
     target.alive = False
     target.memory["last_alive_day"] = gs.day  # Track when they were last alive
-    target.hidden_state["died_night"] = gs.day  # Track which night they died (for Shabaloth regurgitation)
+    target.hidden_state["died_night"] = gs.day if death_type == "night" else death_type  # Track death type (for Shabaloth regurgitation)
+    
+    # Check for Grandparent death trigger (dies if their target dies)
+    for grandparent in gs.players:
+        if (grandparent.role.name == "Grandparent" and 
+            grandparent.alive and 
+            "grandparent_target" in grandparent.memory):
+            target_data = grandparent.memory["grandparent_target"]
+            if target_data["target"] == target.seat:
+                # Check if Grandparent is sober/trustworthy
+                if is_sober_trustworthy(grandparent):
+                    gs.log_secret(f"Grandparent {grandparent.label()}'s target {target.label()} was killed! Grandparent dies too.")
+                    # Recursively call attempt_kill_player to handle Grandparent death
+                    attempt_kill_player(gs, grandparent, "Grandparent target killed")
+                else:
+                    gs.log_secret(f"Drunk Grandparent {grandparent.label()}'s target {target.label()} was killed, but Grandparent doesn't die (drunk/poisoned).")
     
     gs.log_secret(f"{target.label()} was killed by {killer}.")
     return True
@@ -1602,7 +1798,7 @@ def resolve_ability(player: Player, normal_fn, drunk_fn=None):
         # If no drunk_fn provided, return None
         return drunk_fn() if drunk_fn else None
 
-def setup_game(names: List[str], character_set: int = 1, print_stats: bool = False) -> GameState:
+def setup_game(names: List[str], character_set: int = 1, print_stats: bool = False, forced_role_name: Optional[str] = None, forced_role_seat: Optional[int] = None) -> GameState:
     """
     Sets up a Trouble Brewing game for 5–15 players, including Baron logic for Outsiders.
     
@@ -1642,39 +1838,55 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
         available_outsiders = OUTSIDERS
         available_minions = MINIONS
         available_demons = DEMONS
+
+    available_roles = available_townsfolk + available_outsiders + available_minions + available_demons
+    if forced_role_name:
+        if forced_role_seat is None or not (0 <= forced_role_seat < n):
+            raise ValueError(f"Invalid forced human seat: {forced_role_seat}")
+        if forced_role_name not in {role.name for role in available_roles}:
+            raise ValueError(f"Role '{forced_role_name}' is not available in the selected character set")
     
-    # Select minion(s) and check for Baron and Capo Crimini
-    minions = random.sample(available_minions, base_minion)
-    demon = random.choice(available_demons)
-    baron_in_play = any(m.name == "Baron" for m in minions)
-    capo_crimini_in_play = any(m.name == "Capo Crimini" for m in minions)
-    
-    # Outsider count modifications
-    outsider_modifier = 0
-    town_modifier = 0
-    
-    # Baron adds +2 Outsiders, -2 Townsfolk
-    if baron_in_play:
-        outsider_modifier += 2
-        town_modifier -= 2
-    
-    # Capo Crimini adds +1 or -1 Outsider (randomly chosen)
-    if capo_crimini_in_play:
-        capo_modifier = random.choice([-1, 1])
-        outsider_modifier += capo_modifier
-        town_modifier -= capo_modifier
-    
-    outsider_count = base_outsider + outsider_modifier
-    town_count = base_town + town_modifier
-    
-    # Select Outsiders and Townsfolk
-    outsiders = random.sample(available_outsiders, outsider_count) if outsider_count > 0 else []
-    townsfolk = random.sample(available_townsfolk, town_count)
-    # Build the role bag
-    bag = townsfolk + outsiders + minions + [demon]
-    random.shuffle(bag)
-    # Assign roles to players (0-indexed seats)
-    players = [Player(i, names[i], bag[i]) for i in range(n)]
+    # Build a legal role bag. If a human role is forced, reroll until that role is naturally in the bag,
+    # then move that full player/board slot onto the requested human seat.
+    for _attempt in range(1000):
+        minions = random.sample(available_minions, base_minion)
+        demon = random.choice(available_demons)
+        baron_in_play = any(m.name == "Baron" for m in minions)
+        capo_crimini_in_play = any(m.name == "Capo Crimini" for m in minions)
+
+        outsider_modifier = 0
+        town_modifier = 0
+
+        if baron_in_play:
+            outsider_modifier += 2
+            town_modifier -= 2
+
+        if capo_crimini_in_play:
+            capo_modifier = random.choice([-1, 1])
+            outsider_modifier += capo_modifier
+            town_modifier -= capo_modifier
+
+        outsider_count = base_outsider + outsider_modifier
+        town_count = base_town + town_modifier
+
+        outsiders = random.sample(available_outsiders, outsider_count) if outsider_count > 0 else []
+        townsfolk = random.sample(available_townsfolk, town_count)
+        bag = townsfolk + outsiders + minions + [demon]
+        random.shuffle(bag)
+        players = [Player(i, names[i], bag[i]) for i in range(n)]
+
+        if forced_role_name:
+            matching_index = next((i for i, p in enumerate(players) if p.role.name == forced_role_name), None)
+            if matching_index is None:
+                continue
+            if matching_index != forced_role_seat:
+                players[forced_role_seat], players[matching_index] = players[matching_index], players[forced_role_seat]
+                players[forced_role_seat].seat = forced_role_seat
+                players[matching_index].seat = matching_index
+        break
+    else:
+        raise RuntimeError(f"Unable to generate a legal board containing '{forced_role_name}'")
+
     # Comment: Both names and roles are shuffled, so seat assignment is random each game.
     # Handle Drunk (secretly assign a Townsfolk role)
     drunk_fake_role = None
@@ -1687,7 +1899,7 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
             drunk_fake_role = fake_role.name
     # Assign 3 bluffs to all demons (Townsfolk not in play, not the Drunk's fake role)
     # Only assign bluffs if there are 7+ players (Trouble Brewing rule)
-    demons = [p for p in players if p.role.alignment is Alignment.DEMON]
+    demons = [p for p in players if p.alignment is Alignment.DEMON]
     if len(players) >= 7 and demons:
         used_names = set(r.name for r in bag)
         if drunk_fake_role:
@@ -1702,6 +1914,8 @@ def setup_game(names: List[str], character_set: int = 1, print_stats: bool = Fal
     
     # Create GameState
     gs = GameState(players, character_set=character_set)
+    for player in players:
+        refresh_sailor_survivability(player)
     
     # Logging
     role_summary = f"Role bag: {[r.name for r in bag]}"
@@ -1768,7 +1982,7 @@ def run_game(gs: GameState):
                 # Game was terminated early, immediately end the game by killing evil players
                 gs.log_secret("Game terminated early by player - killing all evil players to end game")
                 for player in gs.players:
-                    if player.role.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                    if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
                         player.alive = False
                         player.death_count += 1
                         player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
@@ -1791,7 +2005,7 @@ def run_game(gs: GameState):
                 # Game was terminated early, immediately end the game by killing evil players
                 gs.log_secret("Game terminated early by player - killing all evil players to end game")
                 for player in gs.players:
-                    if player.role.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                    if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
                         player.alive = False
                         player.death_count += 1
                         player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
@@ -1814,7 +2028,7 @@ def run_game(gs: GameState):
                 # Game was terminated early, immediately end the game by killing evil players
                 gs.log_secret("Game terminated early by player - killing all evil players to end game")
                 for player in gs.players:
-                    if player.role.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                    if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
                         player.alive = False
                         player.death_count += 1
                         player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
@@ -1844,7 +2058,7 @@ def run_game(gs: GameState):
             if gs.phase != Phase.END and check_win_condition(gs):
                 gs.phase = Phase.END
             elif gs.phase != Phase.END:
-                # Universal check: Any Moonchildren who died today and haven't used their ability yet
+                # Any Moonchildren who died today choose immediately before night falls.
                 for player in gs.players:
                     if (player.role.name == "Moonchild" and 
                         not player.alive and 
@@ -1852,7 +2066,10 @@ def run_game(gs: GameState):
                         "last_alive_day" in player.memory and 
                         player.memory["last_alive_day"] == gs.day):
                         player.memory["moonchild_learned_death"] = True
-                        gs.log_secret(f"Moonchild {player.label()} learned they died today and will use their ability.")
+                        player.memory["moonchild_death_source"] = "day"
+                        gs.log_secret(f"Moonchild {player.label()} learned they died today and will use their ability immediately.")
+                        if "moonchild_ability_used" not in player.memory:
+                            moonchild_ability(gs, player)
                 
                 # Save interim log at the end of day 5
                 if gs.day == 5:
@@ -1864,6 +2081,7 @@ def run_game(gs: GameState):
 # --- Night/Day Phase Functions (Stubs) ---
 def run_first_night(gs: GameState):
     """Run all first night abilities in the correct order."""
+    # TODO: Fix naming convention - "first night" should refer to Night 0 (setup night), not Night 1 (second night), to avoid confusion
     gs.set_phase_tick("Night 0")  # LLM: Set phase tick for logging
     gs.log_secret("-- Dusk of the First Night (Night 0) --")
     
@@ -1942,30 +2160,6 @@ def run_first_night(gs: GameState):
         if player.role.name == "Pukka" and player.alive:
             run_pukka_ability(gs, player)
                 
-    # Poison wears off (decrement counters)
-    for player in gs.players:
-        if player.poisoned_turns > 0:
-            player.poisoned_turns -= 1
-            if player.poisoned_turns == 0:
-                gs.log_secret(f"(Poison ends) {player.label()} is no longer poisoned.")
-                # Check if this player was ever poisoned by Pukka (Pukka poison dominates)
-                was_ever_pukka_poisoned = player.memory.get("was_ever_pukka_poisoned", False)
-                if player.poisoned and was_ever_pukka_poisoned:
-                    if player.alive:
-                        gs.log_secret(f"{player.label()} dies from expired Pukka poison!")
-                        success = attempt_kill_player(gs, player, "expired Pukka poison")
-                        if success:
-                            # Track this death for dawn announcement
-                            if "night_deaths_this_night" not in gs.memory:
-                                gs.memory["night_deaths_this_night"] = []
-                            gs.memory["night_deaths_this_night"].append(player.seat)
-                    else:
-                        gs.log_secret(f"{player.label()} was already dead, Pukka poison expires harmlessly.")
-                    # Clear the Pukka poison flag since it has now expired
-                    player.memory["was_ever_pukka_poisoned"] = False
-                elif player.poisoned:
-                    gs.log_secret(f"{player.label()}'s poison expires harmlessly (not Pukka poison).")
-    
     gs.log_secret("-- Dawn --")
     # Day 1 begins after first night (Night 0)
     gs.day = 1
@@ -1986,7 +2180,7 @@ def assign_fortune_teller_red_herring(gs: GameState):
     # Find good players (not the Fortune Teller)
     good_players = [p for p in gs.players 
                    if p is not fortune_teller and 
-                   p.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}]
+                   p.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}]
     
     if good_players:
         red_herring = random.choice(good_players)
@@ -2005,6 +2199,7 @@ def run_night(gs: GameState):
     
     # Check for drunkenness expiry at dusk
     check_drunkenness_expiry(gs)
+    check_poison_expiry(gs)
     
     # Official night order (not for Bad Moon Rising)
     # 1. Poisoner
@@ -2085,7 +2280,7 @@ def run_night(gs: GameState):
         # Clear the blocking flag for next night
         del gs.memory["demon_blocked_tonight"]
     else:
-        demons = [p for p in gs.players if p.role.alignment == Alignment.DEMON and p.alive]
+        demons = [p for p in gs.players if p.alignment == Alignment.DEMON and p.alive]
         for demon in demons:
             if demon.role.name == "Imp":
                 run_imp_ability(gs, demon)
@@ -2169,7 +2364,7 @@ def run_night(gs: GameState):
         if potential_targets:
             # Reroll once if the target would be the demon
             target = random.choice(potential_targets)
-            if target.role.alignment == Alignment.DEMON:
+            if target.alignment == Alignment.DEMON:
                 # Reroll to avoid killing the demon
                 new_potential_targets = [p for p in potential_targets if p != target]
                 if new_potential_targets:
@@ -2190,30 +2385,6 @@ def run_night(gs: GameState):
         
         # Clear the gossip kill target
         del gs.memory["gossip_kill_target"]
-    
-    # Poison wears off (decrement counters) - after all abilities are done
-    for player in gs.players:
-        if player.poisoned_turns > 0:
-            player.poisoned_turns -= 1
-            if player.poisoned_turns == 0:
-                gs.log_secret(f"(Poison ends) {player.label()} is no longer poisoned.")
-                # Check if this player was ever poisoned by Pukka (Pukka poison dominates)
-                was_ever_pukka_poisoned = player.memory.get("was_ever_pukka_poisoned", False)
-                if player.poisoned and was_ever_pukka_poisoned:
-                    if player.alive:
-                        gs.log_secret(f"{player.label()} dies from expired Pukka poison!")
-                        success = attempt_kill_player(gs, player, "expired Pukka poison")
-                        if success:
-                            # Track this death for dawn announcement
-                            if "night_deaths_this_night" not in gs.memory:
-                                gs.memory["night_deaths_this_night"] = []
-                            gs.memory["night_deaths_this_night"].append(player.seat)
-                    else:
-                        gs.log_secret(f"{player.label()} was already dead, Pukka poison expires harmlessly.")
-                    # Clear the Pukka poison flag since it has now expired
-                    player.memory["was_ever_pukka_poisoned"] = False
-                elif player.poisoned:
-                    gs.log_secret(f"{player.label()}'s poison expires harmlessly (not Pukka poison).")
     
     # Tinker random death chance (night)
     for player in gs.players:
@@ -2236,7 +2407,7 @@ def run_night(gs: GameState):
             target_data = player.memory["moonchild_target"]
             if target_data["day"] == gs.day - 1:  # Yesterday's target
                 target = next((p for p in gs.players if p.seat == target_data["target"]), None)
-                if target and target.alive and target.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}:
+                if target and target.alive and target.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}:
                     success = attempt_kill_player(gs, target, "Moonchild ability")
                     if success:
                         gs.log_secret(f"Moonchild {player.label()}'s target {target.label()} was good and dies!")
@@ -2295,24 +2466,33 @@ def run_night(gs: GameState):
     resurrections = gs.memory.get("resurrections", [])
     if resurrections:
         for resurrection in resurrections:
-            if resurrection["night"] == gs.day - 1:  # Only announce resurrections from last night
+            if resurrection["night"] == gs.day:  # Announce resurrections from the night that just ended
                 resurrected_player = next((p for p in gs.players if p.seat == resurrection["player"]), None)
-                if resurrected_player:
+                if resurrected_player and resurrected_player.alive:
                     gs.log_public(f"{resurrected_player.name} (Seat {resurrected_player.seat}) has returned to life!")
                     gs.log_secret(f"Dawn announcement: {resurrected_player.label()} was resurrected by {resurrection['type']}")
         
-        # Clear old resurrections
-        gs.memory["resurrections"] = [r for r in resurrections if r["night"] >= gs.day - 1]
+        # Keep only future/unfinished resurrection markers.
+        gs.memory["resurrections"] = [r for r in resurrections if r["night"] > gs.day]
     
-    # Universal check: Any Moonchildren who died and haven't used their ability yet
+    # Any Moonchildren who died at night privately choose now and will reveal in their first daytime message.
     for player in gs.players:
         if (player.role.name == "Moonchild" and 
             not player.alive and 
             "moonchild_learned_death" not in player.memory and
-            "last_alive_day" in player.memory and 
-            player.memory["last_alive_day"] == gs.day - 1):  # They died last night
+            player.hidden_state.get("died_night") == gs.day):
             player.memory["moonchild_learned_death"] = True
-            gs.log_secret(f"Moonchild {player.label()} learned they died and will use their ability.")
+            player.memory["moonchild_death_source"] = "night"
+            gs.log_secret(f"Moonchild {player.label()} learned they died during the night and will choose before dawn.")
+            if "moonchild_ability_used" not in player.memory:
+                if is_sober_trustworthy(player):
+                    prepare_moonchild_public_announcement(gs, player, public_announce_now=False)
+                else:
+                    result = prepare_moonchild_public_announcement(gs, player, public_announce_now=False)
+                    if result:
+                        target = next((p for p in gs.players if p.seat == result["target"]), None)
+                        if target is not None:
+                            gs.log_secret(f"Drunk Moonchild {player.label()} targets {target.label()} overnight, but their ability has no effect (they are drunk/poisoned).")
     
     gs.log_secret("-- Dawn --")
     # Increment day counter for next day
@@ -2345,7 +2525,7 @@ def run_day_discussion(gs: GameState):
             if pass_no == 1 and player.role.name == "Tinker" and player.alive:
                 # 1% chance per player on first pass (can be adjusted)
                 if random.random() < 0.01:
-                    success = attempt_kill_player(gs, player, "Tinker random death")
+                    success = attempt_kill_player(gs, player, "Tinker random death", "day")
                     if success:
                         gs.log_secret(f"Tinker {player.label()} dies randomly during the day!")
                         gs.log_public(f"{player.name} (Seat {player.seat}) died during the day!")
@@ -2387,6 +2567,13 @@ def run_day_discussion(gs: GameState):
                     gs.log_secret(f"[LLM <THINK>] {player.label()}: {think}")
             else:
                 speech = f"I have nothing to share right now. (pass {pass_no})"
+
+            pending_moonchild = player.memory.get("moonchild_pending_public_announcement")
+            if pass_no == 1 and pending_moonchild and pending_moonchild.get("day") == gs.day:
+                target = next((p for p in all_players if p.seat == pending_moonchild.get("target")), None)
+                if target is not None:
+                    speech = f"{speech} [MOONCHILD: {target.name}]"
+                del player.memory["moonchild_pending_public_announcement"]
             # --- Detect Slayer trigger in public comment ---
             # Every Slayer shot attempt should get a public response to avoid revealing who is/isn't the Slayer
             import re
@@ -2581,20 +2768,22 @@ def run_nominations(gs: GameState):
         gs.memory["nominations"].append({"nominator": nominator, "nominee": nominee})
         gs.log_public(nomination)
         gs.log_secret(f"Nomination: {nomination}")
-        if nominee.role.name == "Virgin" and nominator.role.alignment is Alignment.TOWNSFOLK and is_sober_trustworthy(nominee):
-            gs.log_secret(f"Virgin ability check: nominee={nominee.name}, nominator={nominator.name}, nominator_alignment={nominator.role.alignment}, virgin_sober={is_sober_trustworthy(nominee)}")
+        if nominee.role.name == "Virgin" and nominator.alignment is Alignment.TOWNSFOLK and is_sober_trustworthy(nominee):
+            gs.log_secret(f"Virgin ability check: nominee={nominee.name}, nominator={nominator.name}, nominator_alignment={nominator.alignment}, virgin_sober={is_sober_trustworthy(nominee)}")
             if not nominee.memory.get("was_nominated", False):
                 nominee.memory["was_nominated"] = True
                 virgin_trigger = f"The Virgin's ability activates! {nominator.name} is executed immediately!"
                 gs.log_public(virgin_trigger)
                 gs.log_secret(f"Virgin ability: {virgin_trigger}")
-                nominator.alive = False
-                nominator.hidden_state["died_night"] = "day"  # Track that they died during the day (not eligible for Shabaloth regurgitation)
-                gs.memory["executed_today"] = nominator
-                # Check win condition after Virgin execution
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    return
+                
+                # Use attempt_kill_player to handle all death mechanics properly
+                success = attempt_kill_player(gs, nominator, "Virgin execution", "day")
+                if success:
+                    gs.memory["executed_today"] = nominator
+                    # Check win condition after Virgin execution
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        return
 
 def run_voting(gs: GameState):
     """Players vote on nominations."""
@@ -2619,24 +2808,44 @@ def run_voting(gs: GameState):
     if FAST_LLM_VOTING:
         nominees = [n["nominee"] for n in nominations]
         llm_players = [p for p in voting_players if is_llm_player(p) and not is_human_player(p)]
-        
-        # Collect all LLM votes at once
-        for llm_player in llm_players:
+
+        delayed_llm_voter = next(
+            (p for p in llm_players if p.role.name == "Butler" and "master" in p.memory.get("butler", {}).get("data", {})),
+            None,
+        )
+        if delayed_llm_voter is None and llm_players:
+            delayed_llm_voter = random.choice(llm_players)
+
+        parallel_llm_players = [p for p in llm_players if p is not delayed_llm_voter]
+
+        def collect_fast_votes(llm_player):
             prompt = format_player_prompt(gs, llm_player, "fast_voting", options={"nominees": nominees})
-            # Explicitly log the fast voting prompt
             prompt_content = '\n'.join([f"{m['role'].upper()}: {m['content']}" for m in prompt])
             gs.log_llm_prompt(llm_player, "fast_voting", prompt_content, label=f"Fast Voting (Seat {llm_player.seat})")
             llm_response = call_gpt(prompt, label=f"Fast Voting (Seat {llm_player.seat})")
-            
-            # Parse the response to get YES votes
             yes_votes = parse_llm_response(llm_response, "fast_voting", options=nominees, player=llm_player)
-            
-            # Store the votes in player memory for later use
+            return llm_player, yes_votes
+
+        if parallel_llm_players:
+            with ThreadPoolExecutor(max_workers=len(parallel_llm_players)) as executor:
+                futures = [executor.submit(collect_fast_votes, llm_player) for llm_player in parallel_llm_players]
+                for future in as_completed(futures):
+                    llm_player, yes_votes = future.result()
+                    llm_player.memory["fast_votes"] = yes_votes
+                    yes_names = [p.name for p in nominees if p.seat in yes_votes]
+                    gs.log_secret(
+                        f"Fast voting: {llm_player.label()} pre-registered YES votes for: "
+                        f"{', '.join(yes_names) if yes_names else 'none'}"
+                    )
+
+        if delayed_llm_voter is not None:
+            llm_player, yes_votes = collect_fast_votes(delayed_llm_voter)
             llm_player.memory["fast_votes"] = yes_votes
-            
-            # Log the votes for debugging
             yes_names = [p.name for p in nominees if p.seat in yes_votes]
-            gs.log_secret(f"Fast voting: {llm_player.label()} pre-registered YES votes for: {', '.join(yes_names) if yes_names else 'none'}")
+            gs.log_secret(
+                f"Fast voting: {llm_player.label()} pre-registered YES votes for: "
+                f"{', '.join(yes_names) if yes_names else 'none'}"
+            )
     
     # --- REGULAR VOTING: Process votes in order ---
     for idx, nomination in enumerate(nominations):
@@ -2774,8 +2983,8 @@ def run_execution(gs: GameState):
             gs.log_public(no_execution)
             gs.log_secret(f"Execution prevented: {no_execution}")
         # Check for Pacifist protection (good players might not die when executed)
-        elif execution_nominee.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}:
-            pacifists = [p for p in gs.players if p.role.name == "Pacifist" and p.alive]
+        elif execution_nominee.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}:
+            pacifists = [p for p in gs.players if p.role.name == "Pacifist" and p.alive and is_sober_trustworthy(p)]
             if pacifists and random.random() < 0.5:  # 50% chance for Pacifist to prevent execution
                 gs.log_secret(f"Pacifist prevents execution of good player {execution_nominee.label()}.")
                 no_execution = execution_failure_message
@@ -2785,67 +2994,47 @@ def run_execution(gs: GameState):
                 gs.log_secret(f"Pacifist execution prevented: {no_execution}")
             else:
                 executed = execution_nominee
-                executed.death_count += 1
         else:
             executed = execution_nominee
-            executed.death_count += 1
         
         # Now handle the execution logic for any player that wasn't protected
         if executed:
             gs.log_secret(f"Execution proceeding for {executed.label()} (death_count={executed.death_count})")
             
-            # Handle special execution mechanics first
-            execution_prevented = False
-            if executed.role.name == "Fool" and executed.death_count == 1:
-                gs.log_secret(f"Fool {executed.label()} was executed for the first time but doesn't actually die!")
-                execution_prevented = True
-            elif executed.role.name == "Zombuul" and executed.death_count == 1:
-                gs.log_secret(f"Zombuul {executed.label()} was executed for the first time but continues living (registers as dead)!")
-                # Zombuul stays alive for win condition purposes but registers as dead for targeting
-                executed.hidden_state["zombuul_dead_for_targeting"] = True
-                # Don't set execution_prevented - they register as executed but don't die
-            
-            # Handle execution prevention
-            if execution_prevented:
-                no_execution = f"{executed.name} (Seat {executed.seat}) was executed... but the execution mysteriously failed."
-                gs.memory["no_execution_today"] = True
-                gs.memory["executed_today"] = None
-                gs.log_public(no_execution)
-                gs.log_secret(f"Execution prevented: {no_execution}")
-            else:
-                # Handle actual death (for most players, including Zombuul on second death)
-                if executed.role.name == "Zombuul" and executed.death_count == 2:
-                    gs.log_secret(f"Zombuul {executed.label()} was executed for the second time and actually dies!")
-                    executed.alive = False
-                elif executed.role.name != "Zombuul" or executed.death_count > 1:
-                    # Normal execution (or Zombuul after first death)
-                    executed.alive = False
-                
-                # Common execution logic for all executed players
-                if executed.alive == False:  # Only track death timing if they actually died
-                    executed.hidden_state["died_night"] = "day"  # Track that they died during the day
-                
+            # Use attempt_kill_player to handle all death mechanics properly
+            success = attempt_kill_player(gs, executed, "execution", "day")
+            if success:
                 # Set game state
                 gs.memory["executed_today"] = executed
                 gs.memory["no_execution_today"] = False
-                
                 # Track day deaths for Zombuul ability
                 if "day_deaths" not in gs.memory:
                     gs.memory["day_deaths"] = []
                 gs.memory["day_deaths"].append(executed.seat)
                 
-                # Log execution
+                # Log successful execution
                 execution = f"{executed.name} (Seat {executed.seat}) was executed today with {execution_votes} vote(s)."
                 gs.log_public(execution)
                 gs.log_secret(f"Execution: {execution}")
                 
+                # Check for Mastermind trigger (when Demon actually dies by execution)
+                # Note: Zombuul doesn't actually die on first execution, so Mastermind shouldn't trigger
+                if (executed.alignment == Alignment.DEMON and 
+                    (executed.role.name != "Zombuul" or executed.death_count > 1)):
+                    masterminds = [p for p in gs.players if p.role.name == "Mastermind" and p.alive and is_sober_trustworthy(p)]
+                    for mastermind in masterminds:
+                        gs.memory["mastermind_triggered"] = True
+                        gs.memory["mastermind_demon_executed_day"] = gs.day
+                        gs.log_secret(f"Mastermind {mastermind.label()} triggers - game continues for 1 more day.")
+                        # DO NOT announce publicly - Mastermind ability is completely hidden
+
                 # Check win condition immediately after execution
                 if check_win_condition(gs):
                     gs.phase = Phase.END
                     return
                 
                 # Check for Saint execution
-                if executed.role.name == "Saint":
+                if executed.role.name == "Saint" and is_sober_trustworthy(executed):
                     saint_trigger = "The Saint was executed! Good team loses!"
                     gs.log_public(saint_trigger)
                     gs.log_secret(f"Saint ability: {saint_trigger}")
@@ -2853,8 +3042,8 @@ def run_execution(gs: GameState):
                     return
                 
                 # Check for Minstrel trigger (when a Minion dies by execution)
-                if executed.role.alignment == Alignment.MINION:
-                    minstrels = [p for p in gs.players if p.role.name == "Minstrel" and p.alive]
+                if executed.alignment == Alignment.MINION:
+                    minstrels = [p for p in gs.players if p.role.name == "Minstrel" and p.alive and is_sober_trustworthy(p)]
                     for minstrel in minstrels:
                         # Make all other players (except Travellers) drunk until dusk tomorrow
                         for other_player in gs.players:
@@ -2862,27 +3051,38 @@ def run_execution(gs: GameState):
                                 mark_drunk(other_player, gs.day + 1)
                         gs.log_secret(f"Minstrel {minstrel.label()} makes all other players drunk until dusk tomorrow.")
                 
-                # Check for Mastermind trigger (when Demon actually dies by execution)
-                # Note: Zombuul doesn't actually die on first execution, so Mastermind shouldn't trigger
-                if (executed.role.alignment == Alignment.DEMON and 
-                    (executed.role.name != "Zombuul" or executed.death_count > 1)):
-                    masterminds = [p for p in gs.players if p.role.name == "Mastermind" and p.alive]
-                    for mastermind in masterminds:
-                        gs.memory["mastermind_triggered"] = True
-                        gs.memory["mastermind_demon_executed_day"] = gs.day
-                        gs.log_secret(f"Mastermind {mastermind.label()} triggers - game continues for 1 more day.")
-                        # DO NOT announce publicly - Mastermind ability is completely hidden
-                
-                # Check for Mastermind win condition (if Mastermind triggered and someone is executed on a subsequent day)
+                # Check for Mastermind loss condition (if Mastermind triggered, NEXT executed player's team loses)
                 # Only check if this is NOT the same day the demon was executed
                 if (gs.memory.get("mastermind_triggered") and 
                     executed and 
                     gs.memory.get("mastermind_demon_executed_day") != gs.day):
-                    masterminds = [p for p in gs.players if p.role.name == "Mastermind" and p.alive]
-                    for mastermind in masterminds:
-                        gs.log_secret("Win condition: Evil team wins (Mastermind)")
-                        gs.phase = Phase.END
-                        return
+                    
+                    # Determine which team loses - the team of the executed player
+                    executed_alignment = executed.alignment
+                    losing_team_alignment = executed_alignment  # The team of the executed player loses
+                    winning_team_alignment = Alignment.TOWNSFOLK if losing_team_alignment == Alignment.DEMON else Alignment.DEMON  # Opposite alignment wins
+                    
+                    losing_team_name = "Evil" if losing_team_alignment == Alignment.DEMON else "Good"
+                    winning_team_name = "Good" if winning_team_alignment == Alignment.TOWNSFOLK else "Evil"
+                    
+                    gs.log_secret(f"Mastermind effect: {losing_team_name} player {executed.label()} executed → {winning_team_name} team wins")
+                    gs.set_winning_team(winning_team_alignment, "Mastermind - NEXT executed player's team loses")
+                    gs.phase = Phase.END
+                    return
+            else:
+                # Execution failed (player was protected)
+                gs.memory["executed_today"] = None
+                gs.memory["no_execution_today"] = True
+                
+                # Log failed execution
+                execution_failure = f"{executed.name} (Seat {executed.seat}) was executed today with {execution_votes} vote(s)... but the execution mysteriously failed."
+                gs.log_public(execution_failure)
+                gs.log_secret(f"Execution failed: {execution_failure}")
+                
+                # Check win condition immediately after failed execution
+                if check_win_condition(gs):
+                    gs.phase = Phase.END
+                    return
                 
 
     else:
@@ -2892,6 +3092,16 @@ def run_execution(gs: GameState):
         gs.log_public(no_execution)
         gs.log_secret(f"Execution: {no_execution}")
         gs.log_secret(f"Execution debug: No execution because nominee={execution_nominee.name if execution_nominee else 'None'}, alive={execution_nominee.alive if execution_nominee else 'N/A'}")
+        
+        # Check for Mastermind no-execution win condition
+        # If mastermind triggered and no execution today, good wins
+        if (gs.memory.get("mastermind_triggered") and 
+            gs.memory.get("mastermind_demon_executed_day") != gs.day):
+            gs.log_secret("Mastermind effect: No execution today → Good team wins")
+            gs.set_winning_team(Alignment.TOWNSFOLK, "Mastermind - no execution after demon death")
+            gs.phase = Phase.END
+            return
+    
     if check_win_condition(gs):
         gs.phase = Phase.END
     else:
@@ -2922,7 +3132,7 @@ def washerwoman_ability(gs: GameState, player: Player):
     others = [q for q in gs.players if q is not player]
     def normal_fn():
         # Only show true Townsfolk (not Spy, Minion, Outsider, Demon)
-        town_players = [q for q in others if ((q.role.alignment is Alignment.TOWNSFOLK) and (q.role.name != "Spy"))]
+        town_players = [q for q in others if ((q.alignment is Alignment.TOWNSFOLK) and (q.role.name != "Spy"))]
         if not town_players:
             gs.log_secret(f"[DIAGNOSTIC] Washerwoman found no valid Townsfolk to reveal.")
             return None
@@ -2961,7 +3171,7 @@ def librarian_ability(gs: GameState, player: Player):
     others = [q for q in gs.players if q is not player]
     def normal_fn():
         # Only show true Outsiders (not Townsfolk, Minion, Demon, or Slayer)
-        outsider_players = [q for q in others if q.role.alignment is Alignment.OUTSIDER]
+        outsider_players = [q for q in others if q.alignment is Alignment.OUTSIDER]
         if outsider_players:
             real_outsider = random.choice(outsider_players)
             other_player = random.choice([q for q in others if q is not real_outsider])
@@ -3010,7 +3220,7 @@ def investigator_ability(gs: GameState, player: Player):
     """Investigator learns 1 of 2 players is a particular Minion."""
     others = [q for q in gs.players if q is not player]
     def normal_fn():
-        minion_players = [q for q in others if q.role.alignment is Alignment.MINION]
+        minion_players = [q for q in others if q.alignment is Alignment.MINION]
         if not minion_players:
             return None
         minion = random.choice(minion_players)
@@ -3044,7 +3254,7 @@ def investigator_ability(gs: GameState, player: Player):
 def chef_ability(gs: GameState, player: Player):
     """Chef learns how many pairs of evil players there are."""
     def normal_fn():
-        evil_players = [p for p in gs.players if (p.role.alignment in {Alignment.MINION, Alignment.DEMON} or recluse_registers_as_evil_or_minion_or_demon(p))]
+        evil_players = [p for p in gs.players if (p.alignment in {Alignment.MINION, Alignment.DEMON} or recluse_registers_as_evil_or_minion_or_demon(p))]
         pair_count = 0
         for i in range(len(gs.players)):
             if gs.players[i] in evil_players and gs.players[(i+1) % len(gs.players)] in evil_players:
@@ -3055,7 +3265,7 @@ def chef_ability(gs: GameState, player: Player):
         gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
         return {"evil_pairs": pair_count}
     def drunk_fn():
-        evil_count = sum(1 for p in gs.players if p.role.alignment in {Alignment.MINION, Alignment.DEMON})
+        evil_count = sum(1 for p in gs.players if p.alignment in {Alignment.MINION, Alignment.DEMON})
         max_possible = min(len(gs.players) // 2, evil_count)
         random_count = random.randint(0, max_possible)
         msg = f"You learn there are {random_count} pairs of evil players sitting next to each other."
@@ -3084,7 +3294,7 @@ def empath_ability(gs: GameState, player: Player):
         player_index = alive_players.index(player)
         left_neighbor = alive_players[(player_index - 1) % len(alive_players)]
         right_neighbor = alive_players[(player_index + 1) % len(alive_players)]
-        evil_count = sum(1 for p in [left_neighbor, right_neighbor] if (p.role.alignment in {Alignment.MINION, Alignment.DEMON} or recluse_registers_as_evil_or_minion_or_demon(p)))
+        evil_count = sum(1 for p in [left_neighbor, right_neighbor] if (p.alignment in {Alignment.MINION, Alignment.DEMON} or recluse_registers_as_evil_or_minion_or_demon(p)))
         msg = f"You sense {evil_count} evil neighbor(s) ({left_neighbor.name} (Seat {left_neighbor.seat}), {right_neighbor.name} (Seat {right_neighbor.seat}))."
         if is_human_player(player):
             print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
@@ -3182,7 +3392,7 @@ def fortune_teller_ability(gs: GameState, player: Player):
             if len(others) < 2:
                 return None
             targets = random.sample(others, 2)
-        is_demon = any((p.role.alignment is Alignment.DEMON or recluse_registers_as_evil_or_minion_or_demon(p) == "demon") for p in targets)
+        is_demon = any((p.alignment is Alignment.DEMON or recluse_registers_as_evil_or_minion_or_demon(p) == "demon") for p in targets)
         red_herring_seat = gs.memory.get("ft_red_herring")
         red_herring_selected = red_herring_seat is not None and any(p.seat == red_herring_seat for p in targets)
         result_demon = is_demon or red_herring_selected
@@ -3311,6 +3521,9 @@ def monk_ability(gs: GameState, player: Player):
         target = next((p for p in others if p.seat == seat and p is not player), None)
         if target is None:
             target = random.choice(others)
+    else:
+        # Random (non-LLM, non-human) selection
+        target = random.choice(others)
     
     # Set message (same for both drunk and normal)
     msg = f"You protect {target.name} (Seat {target.seat}) from the Demon tonight."
@@ -3465,13 +3678,13 @@ def check_win_condition(gs: GameState):
             # Zombuul is "dead for targeting" but still alive for win condition purposes
             effective_alive_players.append(player)
     
-    alive_demon = any(p.alive and p.role.alignment is Alignment.DEMON for p in gs.players)
+    alive_demon = any(p.alive and p.alignment is Alignment.DEMON for p in gs.players)
     
     # Count good and evil players (using effective alive players for Zombuul)
     good_count = sum(1 for p in effective_alive_players 
-                    if p.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER})
+                    if p.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER})
     evil_count = sum(1 for p in effective_alive_players 
-                   if p.role.alignment in {Alignment.MINION, Alignment.DEMON})
+                   if p.alignment in {Alignment.MINION, Alignment.DEMON})
     
     gs.log_secret(f"Win condition check: {len(effective_alive_players)} effective alive, {good_count} good, {evil_count} evil, demon alive: {alive_demon}")
     
@@ -3546,23 +3759,24 @@ def get_game_snapshot(gs: GameState, for_player=None):
     dead_players = [p for p in gs.players if not p.alive]
     
     # Handle Zombuul who are "dead for targeting" but still alive for win conditions
+    # These should appear as dead in the game state shown to players
     zombuul_dead_for_targeting = [p for p in gs.players 
                                  if p.role.name == "Zombuul" and 
                                  p.hidden_state.get("zombuul_dead_for_targeting", False) and 
                                  p.alive]
     
-    lines.append(f"\nALIVE PLAYERS ({len(alive_players)}):")
-    for p in alive_players:
+    # Remove Zombuul who are "dead for targeting" from the alive players list for display
+    # They should appear as dead to other players
+    display_alive_players = [p for p in alive_players if not (p.role.name == "Zombuul" and p.hidden_state.get("zombuul_dead_for_targeting", False))]
+    display_dead_players = dead_players + zombuul_dead_for_targeting
+    
+    lines.append(f"\nALIVE PLAYERS ({len(display_alive_players)}):")
+    for p in display_alive_players:
         lines.append(f"  Seat {p.seat}: {p.name}")
     
-    if zombuul_dead_for_targeting:
-        lines.append(f"\nZOMBUUL DEAD FOR TARGETING ({len(zombuul_dead_for_targeting)}):")
-        for p in zombuul_dead_for_targeting:
-            lines.append(f"  Seat {p.seat}: {p.name} (Zombuul - registers as dead for targeting)")
-    
-    if dead_players:
-        lines.append(f"\nDEAD PLAYERS ({len(dead_players)}):")
-        for p in dead_players:
+    if display_dead_players:
+        lines.append(f"\nDEAD PLAYERS ({len(display_dead_players)}):")
+        for p in display_dead_players:
             lines.append(f"  Seat {p.seat}: {p.name}")
     
     # Summary of current state
@@ -3637,6 +3851,46 @@ def format_memory_for_display(key, value):
     else:
         return str(value)
 
+
+def append_memory_history(player: "Player", key: str, entry_type: str, data: Dict[str, Any]):
+    """Append a memory entry without overwriting prior nights."""
+    new_entry = {"type": entry_type, "data": data}
+    existing = player.memory.get(key)
+    if existing is None:
+        player.memory[key] = [new_entry]
+    elif isinstance(existing, list):
+        existing.append(new_entry)
+    else:
+        player.memory[key] = [existing, new_entry]
+
+
+def prepare_moonchild_public_announcement(gs: "GameState", player: "Player", public_announce_now: bool):
+    """Resolve a Moonchild choice either immediately publicly or as a deferred first-message reveal."""
+    alive_players = [p for p in gs.players if p.alive and p != player]
+    if not alive_players:
+        gs.log_secret(f"Moonchild {player.label()} has no valid targets.")
+        return None
+
+    choice_result = get_moonchild_choice(gs, player, alive_players)
+    if choice_result is None:
+        return None
+
+    target = choice_result["target"]
+    player.memory["moonchild_target"] = {"target": target.seat, "day": gs.day}
+    player.memory["moonchild_ability_used"] = True
+
+    if public_announce_now:
+        msg = f"You publicly choose {target.name} (Seat {target.seat})."
+        if is_human_player(player):
+            print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
+        gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
+        gs.log_public(f"{player.name} (Seat {player.seat}) publicly chooses {target.name} (Seat {target.seat}).")
+    else:
+        player.memory["moonchild_pending_public_announcement"] = {"target": target.seat, "day": gs.day + 1}
+        gs.log_secret(f"Moonchild {player.label()} privately chooses {target.label()} overnight and will reveal it in their first message on Day {gs.day + 1}.")
+
+    return {"target": target.seat, "target_alignment": target.alignment}
+
 # Helper to check if a player should use LLM (for test mode or full LLM mode)
 def is_llm_player(player):
     if PER_SEAT_USE_LLM is not None:
@@ -3666,6 +3920,229 @@ def sanitize_for_pdf(text):
     # Remove/replace any remaining non-latin1 chars
     return text.encode('latin-1', 'replace').decode('latin-1')
 
+
+def classify_storyteller_visibility(log_line: str) -> Dict[str, str]:
+    private_match = re.match(r"^\[PRIVATE\] (.+?) \(Seat (\d+)\)(?: \([^)]+\))? is told: (.*)$", log_line)
+    if private_match:
+        return {
+            "visibility": "player_private",
+            "audience": private_match.group(1),
+            "audience_seat": private_match.group(2),
+            "message": private_match.group(3),
+        }
+    return {
+        "visibility": "storyteller",
+        "audience": "storyteller",
+        "audience_seat": "",
+        "message": log_line,
+    }
+
+
+def classify_xml_entry_visibility(entry: Dict[str, Any]) -> Dict[str, str]:
+    attrs = entry.get("attributes", {})
+    player_name = attrs.get("player_name")
+    player_seat = attrs.get("player_seat")
+    if entry["type"] == "llm_prompt":
+        return {
+            "visibility": "player_private" if player_name is not None else "storyteller",
+            "audience": str(player_name) if player_name is not None else "storyteller",
+            "audience_seat": str(player_seat) if player_seat is not None else "",
+        }
+    if entry["type"] in {"llm_response", "action_start", "action_end"}:
+        return {
+            "visibility": "storyteller",
+            "audience": "storyteller",
+            "audience_seat": "",
+        }
+    return {
+        "visibility": "storyteller",
+        "audience": "storyteller",
+        "audience_seat": "",
+    }
+
+
+def parse_gambler_llm_choice(response_text: str, targets: List[Player], available_roles: List[str]) -> Tuple[Optional[Player], Optional[str]]:
+    text = response_text or ""
+    text_no_tags = re.sub(r"<[^>]+>", " ", text)
+    text_lower = text_no_tags.lower()
+
+    bracket_match = re.search(r"\[\s*([A-Za-z]+)\s*,\s*([A-Za-z' -]+?)\s*\]", text_no_tags, re.IGNORECASE)
+    if bracket_match:
+        target_name = bracket_match.group(1).strip()
+        guessed_role_text = bracket_match.group(2).strip()
+        target = next((t for t in targets if t.name.lower() == target_name.lower()), None)
+        guessed_role = None
+        for role_name in sorted(available_roles, key=len, reverse=True):
+            if guessed_role_text.lower() == role_name.lower():
+                guessed_role = role_name
+                break
+        if target and guessed_role:
+            return target, guessed_role
+
+    def find_target(segment: str) -> Optional[Player]:
+        segment_lower = segment.lower()
+        for candidate in targets:
+            if re.search(rf"\b{re.escape(candidate.name.lower())}\b", segment_lower):
+                return candidate
+        return None
+
+    def find_role(segment: str) -> Optional[str]:
+        segment_lower = segment.lower()
+        for role_name in sorted(available_roles, key=len, reverse=True):
+            if re.search(rf"\b{re.escape(role_name.lower())}\b", segment_lower):
+                return role_name
+        return None
+
+    explicit_patterns = [
+        r"(?:target|choose|pick)\s+([A-Za-z]+).*?(?:guess|guessed|guessing)\s+[\"']?([A-Za-z' -]+)[\"']?",
+        r"([A-Za-z]+)\s*(?:=|is)\s*[\"']?([A-Za-z' -]+)[\"']?\s*\)?",
+    ]
+    for pattern in explicit_patterns:
+        match = re.search(pattern, text_no_tags, re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        target = next((t for t in targets if t.name.lower() == match.group(1).strip().lower()), None)
+        guessed_role = find_role(match.group(2).strip())
+        if target and guessed_role:
+            return target, guessed_role
+
+    think_match = re.search(r"<THINK>(.*?)</THINK>", text, re.IGNORECASE | re.DOTALL)
+    if think_match:
+        think_text = think_match.group(1)
+        target = find_target(think_text)
+        guessed_role = find_role(think_text)
+        if target and guessed_role:
+            return target, guessed_role
+
+    say_match = re.search(r"<SAY>(.*?)</SAY>", text, re.IGNORECASE | re.DOTALL)
+    if say_match:
+        say_text = say_match.group(1)
+        target = find_target(say_text)
+        guessed_role = find_role(say_text)
+        if target and guessed_role:
+            return target, guessed_role
+
+    return find_target(text_lower), find_role(text_lower)
+
+
+def parse_fast_voting_llm_choice(response_text: str, nominees: List[Player], player: Optional[Player] = None) -> List[int]:
+    text = response_text or ""
+    text_no_tags = re.sub(r"<[^>]+>", " ", text)
+    nominee_lookup = {nominee.name.lower(): nominee for nominee in nominees}
+
+    def normalize_choice_list(choice_text: str) -> Optional[List[int]]:
+        raw_choice = choice_text.strip()
+        if not raw_choice:
+            return []
+        lowered = raw_choice.lower()
+        if lowered in {"none", "no"}:
+            return []
+        if lowered == "all":
+            return [nominee.seat for nominee in nominees if player is None or nominee.seat != player.seat]
+
+        picked_seats: List[int] = []
+        for part in [segment.strip() for segment in raw_choice.split(",")]:
+            if not part:
+                continue
+            nominee = nominee_lookup.get(part.lower())
+            if nominee is None:
+                return None
+            if player is not None and nominee.seat == player.seat:
+                continue
+            if nominee.seat not in picked_seats:
+                picked_seats.append(nominee.seat)
+        return picked_seats
+
+    bracket_matches = re.findall(r"\[([^\[\]]*)\]", text_no_tags, re.DOTALL)
+    for bracket_text in reversed(bracket_matches):
+        normalized = normalize_choice_list(bracket_text)
+        if normalized is not None:
+            return normalized
+
+    say_match = re.search(r"<SAY>(.*?)</SAY>", text, re.IGNORECASE | re.DOTALL)
+    if say_match:
+        normalized = normalize_choice_list(say_match.group(1))
+        if normalized is not None:
+            return normalized
+
+    normalized = normalize_choice_list(text_no_tags.strip())
+    if normalized is not None:
+        return normalized
+    return []
+
+
+def build_condensed_observer_log(gs: GameState) -> str:
+    """Build a condensed observer-facing XML log with audience visibility metadata."""
+    lines = []
+    lines.append('<?xml version="1.0" encoding="UTF-8"?>')
+    lines.append(
+        f'<observer_log generated_at="{xml_escape(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))}" '
+        f'character_set="{gs.character_set}" player_count="{len(gs.players)}">'
+    )
+    lines.append('  <roster visibility="observer_postgame" audience="postgame_observer">')
+    for player in gs.players:
+        role_name, _, alignment = get_actual_role_info(player)
+        state = "alive" if player.alive else "dead"
+        lines.append(
+            f'    <player seat="{player.seat}" name="{xml_escape(player.name)}" '
+            f'role="{xml_escape(role_name)}" alignment="{alignment.value}" state="{state}" '
+            f'visibility="observer_postgame" audience="postgame_observer" />'
+        )
+    lines.append("  </roster>")
+
+    lines.append("  <events>")
+    for log in gs.public_log:
+        phase_tick_id = xml_escape(str(log.get("phase_tick_id", "")))
+        msg = xml_escape(str(log.get("msg", "")))
+        lines.append(
+            f'    <event source="public_log" visibility="public" audience="all" phase_tick_id="{phase_tick_id}">{msg}</event>'
+        )
+
+    for entry in gs.xml_log:
+        if entry["type"] in {"llm_prompt", "phase_start"}:
+            continue
+        attrs = entry.get("attributes", {})
+        attr_text = " ".join(
+            f'{key}="{xml_escape(str(value))}"'
+            for key, value in sorted(attrs.items())
+            if value is not None
+        )
+        attr_suffix = f" {attr_text}" if attr_text else ""
+        content = xml_escape(str(entry["content"]).replace("\r\n", "\n").replace("\r", "\n").strip())
+        lines.append(
+            f'    <event source="xml_log" type="{xml_escape(str(entry["type"]))}" visibility="storyteller" '
+            f'audience="storyteller" phase="{xml_escape(str(entry.get("phase", "")))}" '
+            f'day="{xml_escape(str(entry.get("day", "")))}" phase_tick_id="{xml_escape(str(entry.get("phase_tick_id", "")))}"{attr_suffix}>{content}</event>'
+        )
+
+    for log in gs.storyteller_log:
+        if "[LLM PROMPT]" in log:
+            continue
+        if log.startswith("[DEBUG]"):
+            continue
+        info = classify_storyteller_visibility(log)
+        msg = xml_escape(info["message"])
+        lines.append(
+            f'    <event source="storyteller_log" visibility="{info["visibility"]}" '
+            f'audience="{xml_escape(info["audience"])}" audience_seat="{xml_escape(info["audience_seat"])}">{msg}</event>'
+        )
+
+    lines.append("  </events>")
+    lines.append("</observer_log>")
+    return "\n".join(lines)
+
+
+def save_condensed_observer_log(gs: GameState, xml_filename: str):
+    """Save a condensed observer-facing XML log alongside the full XML log."""
+    base = os.path.splitext(xml_filename)[0]
+    observer_filename = f"{base}_observer.xml"
+    try:
+        with open(observer_filename, "w", encoding="utf-8") as f:
+            f.write(build_condensed_observer_log(gs))
+        print_colored(f"Condensed observer log saved to {observer_filename}", 'STORYTELLER')
+    except Exception as e:
+        print_colored(f"Error saving condensed observer log: {e}", 'ERROR')
+
 def save_logs_to_xml(gs: GameState, filename=None):
     """Save game logs in structured XML format for easy analysis and navigation."""
     if filename is None:
@@ -3684,7 +4161,7 @@ def save_logs_to_xml(gs: GameState, filename=None):
     xml_content.append('    <players>')
     for player in gs.players:
         role_name, _, alignment = get_actual_role_info(player)
-        xml_content.append(f'      <player seat="{player.seat}" name="{player.name}" role="{role_name}" alignment="{alignment.value}"/>')
+        xml_content.append(f'      <player seat="{player.seat}" name="{player.name}" role="{role_name}" alignment="{alignment.value}" visibility="observer_postgame" audience="postgame_observer"/>')
     xml_content.append('    </players>')
     
     # Add LLM statistics
@@ -3707,7 +4184,10 @@ def save_logs_to_xml(gs: GameState, filename=None):
     # Add structured log entries in chronological order
     xml_content.append('  <log_entries>')
     for entry in gs.xml_log:
+        visibility_info = classify_xml_entry_visibility(entry)
         attrs = ' '.join([f'{k}="{v}"' for k, v in entry["attributes"].items() if v is not None])
+        visibility_attrs = f'visibility="{visibility_info["visibility"]}" audience="{visibility_info["audience"]}" audience_seat="{visibility_info["audience_seat"]}"'
+        attrs = f"{visibility_attrs} {attrs}".strip()
         if attrs:
             xml_content.append(f'    <{entry["type"]} id="{entry["id"]}" phase="{entry["phase"]}" day="{entry["day"]}" {attrs}>')
         else:
@@ -3724,12 +4204,13 @@ def save_logs_to_xml(gs: GameState, filename=None):
     xml_content.append('    <public_log>')
     for log in gs.public_log:
         msg = log["msg"].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
-        xml_content.append(f'      <entry phase_tick_id="{log["phase_tick_id"]}">{msg}</entry>')
+        xml_content.append(f'      <entry phase_tick_id="{log["phase_tick_id"]}" visibility="public" audience="all">{msg}</entry>')
     xml_content.append('    </public_log>')
     xml_content.append('    <storyteller_log>')
     for log in gs.storyteller_log:
         msg = log.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
-        xml_content.append(f'      <entry>{msg}</entry>')
+        info = classify_storyteller_visibility(log)
+        xml_content.append(f'      <entry visibility="{info["visibility"]}" audience="{info["audience"]}" audience_seat="{info["audience_seat"]}">{msg}</entry>')
     xml_content.append('    </storyteller_log>')
     xml_content.append('  </legacy_logs>')
     
@@ -3740,6 +4221,7 @@ def save_logs_to_xml(gs: GameState, filename=None):
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('\n'.join(xml_content))
         print_colored(f"Game log saved to {filename}", 'STORYTELLER')
+        save_condensed_observer_log(gs, filename)
         print_colored("You can open this XML file in any text editor or XML viewer for easy navigation.", 'STORYTELLER')
         print_colored("Each prompt, response, and action is a separate collapsible element.", 'STORYTELLER')
     except Exception as e:
@@ -3763,7 +4245,7 @@ def save_interim_logs_to_xml(gs: GameState, filename=None):
     xml_content.append('    <players>')
     for player in gs.players:
         role_name, _, alignment = get_actual_role_info(player)
-        xml_content.append(f'      <player seat="{player.seat}" name="{player.name}" role="{role_name}" alignment="{alignment.value}"/>')
+        xml_content.append(f'      <player seat="{player.seat}" name="{player.name}" role="{role_name}" alignment="{alignment.value}" visibility="observer_postgame" audience="postgame_observer"/>')
     xml_content.append('    </players>')
     
     # Add LLM statistics
@@ -3786,7 +4268,10 @@ def save_interim_logs_to_xml(gs: GameState, filename=None):
     # Add structured log entries in chronological order
     xml_content.append('  <log_entries>')
     for entry in gs.xml_log:
+        visibility_info = classify_xml_entry_visibility(entry)
         attrs = ' '.join([f'{k}="{v}"' for k, v in entry["attributes"].items() if v is not None])
+        visibility_attrs = f'visibility="{visibility_info["visibility"]}" audience="{visibility_info["audience"]}" audience_seat="{visibility_info["audience_seat"]}"'
+        attrs = f"{visibility_attrs} {attrs}".strip()
         if attrs:
             xml_content.append(f'    <{entry["type"]} id="{entry["id"]}" phase="{entry["phase"]}" day="{entry["day"]}" {attrs}>')
         else:
@@ -3803,12 +4288,13 @@ def save_interim_logs_to_xml(gs: GameState, filename=None):
     xml_content.append('    <public_log>')
     for log in gs.public_log:
         msg = log["msg"].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
-        xml_content.append(f'      <entry phase_tick_id="{log["phase_tick_id"]}">{msg}</entry>')
+        xml_content.append(f'      <entry phase_tick_id="{log["phase_tick_id"]}" visibility="public" audience="all">{msg}</entry>')
     xml_content.append('    </public_log>')
     xml_content.append('    <storyteller_log>')
     for log in gs.storyteller_log:
         msg = log.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
-        xml_content.append(f'      <entry>{msg}</entry>')
+        info = classify_storyteller_visibility(log)
+        xml_content.append(f'      <entry visibility="{info["visibility"]}" audience="{info["audience"]}" audience_seat="{info["audience_seat"]}">{msg}</entry>')
     xml_content.append('    </storyteller_log>')
     xml_content.append('  </legacy_logs>')
     
@@ -3819,6 +4305,7 @@ def save_interim_logs_to_xml(gs: GameState, filename=None):
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('\n'.join(xml_content))
         print_colored(f"Interim game log saved to {filename}", 'STORYTELLER')
+        save_condensed_observer_log(gs, filename)
         print_colored("This is a preliminary copy at the end of Day 5.", 'STORYTELLER')
     except Exception as e:
         print_colored(f"Error saving interim XML log: {e}", 'ERROR')
@@ -3867,11 +4354,11 @@ def save_interim_logs_to_xml(gs: GameState, filename=None):
 #     pdf.output(filename)
 #     print_colored(f"Game log saved to {filename}", 'STORYTELLER')
 
-def demon_minion_info(gs: GameState):
+def demon_minion_info(gs: GameState): # PATCH NEEDED: this needs to only provide bluff and private minion/demon information if there are (at least / more than?) 7 players. 
     """Give the Imp and Minions their starting information (first night only)."""
     # Find all demons (including Bad Moon Rising demons)
-    demons = [p for p in gs.players if p.role.alignment == Alignment.DEMON]
-    minions = [p for p in gs.players if p.role.alignment is Alignment.MINION]
+    demons = [p for p in gs.players if p.alignment == Alignment.DEMON]
+    minions = [p for p in gs.players if p.alignment is Alignment.MINION]
     in_play_names = {p.role.name for p in gs.players}
     
     # Select bluff candidates based on character set
@@ -3906,6 +4393,16 @@ def demon_minion_info(gs: GameState):
             if is_human_player(demon):
                 print_colored(f"[PRIVATE] {msg}", 'PRIVATE')
             gs.log_secret(f"[PRIVATE] {demon.label()} ({demon.role.name}) is told: {msg}")
+
+    # Tell the real demon if a Lunatic is in play.
+    lunatic = next((p for p in gs.players if p.role.name == "Lunatic"), None)
+    if lunatic:
+        for demon in demons:
+            demon.memory["lunatic"] = f"{lunatic.name} (Seat {lunatic.seat})"
+            msg = f"There is a Lunatic in play: {lunatic.name} (Seat {lunatic.seat})."
+            if is_human_player(demon):
+                print_colored(f"[PRIVATE] {msg}", 'PRIVATE')
+            gs.log_secret(f"[PRIVATE] {demon.label()} ({demon.role.name}) is told: {msg}")
     
     # Handle minions
     for minion in minions:
@@ -3921,7 +4418,6 @@ def demon_minion_info(gs: GameState):
         gs.log_secret(f"[PRIVATE] {minion.label()} (Minion) is told: {msg}")
     
     # Handle Lunatic (they think they're the Demon)
-    lunatic = next((p for p in gs.players if p.role.name == "Lunatic"), None)
     if lunatic:
         # Determine what demon type the Lunatic thinks they are
         # They should think they're the same demon type as the real demon
@@ -3964,10 +4460,7 @@ def demon_minion_info(gs: GameState):
             print_colored(f"[PRIVATE] {msg}", 'PRIVATE')
         gs.log_secret(f"[PRIVATE] {lunatic.label()} (Lunatic) thinks they are the {fake_demon_type} and is told: {msg}")
         
-        # Give minions fake info about Lunatic (they think Lunatic is the Demon)
-        for minion in minions:
-            minion.memory["demon"] = f"{lunatic.name} (Seat {lunatic.seat})"
-            gs.log_secret(f"Minion {minion.label()} thinks Demon is: {lunatic.name} (Seat {lunatic.seat})")
+        # Real minions should still know the real Demon; do not overwrite with Lunatic info.
 
 def butler_ability(gs: GameState, player: Player):
     """Butler chooses a player (not self): they are their master for the next day."""
@@ -4125,11 +4618,7 @@ def run_imp_ability(gs: GameState, player: Player):
         # Log the target selection
         gs.log_target_selection(player, "imp_kill", target)
     elif is_llm_player(player):
-        prompt = format_player_prompt(gs, player, "target_selection", options=others)
-        prompt.append({
-            "role": "system",
-            "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-        })
+        prompt = build_demon_target_prompt(gs, player, get_imp_target_prompt_text(), others)
         print_llm_prompt_for_seat(player, f"Prompting LLM for Imp (Seat {player.seat}) target_selection", 'PROMPT')
         # Explicitly log the Imp prompt
         prompt_content = '\n'.join([f"{m['role'].upper()}: {m['content']}" for m in prompt])
@@ -4158,22 +4647,11 @@ def run_imp_ability(gs: GameState, player: Player):
         if not target.alive:
             gs.log_secret(f"[ERROR] Imp {player.label()} tried to kill dead player {target.label()}. Action ignored.")
             success = False
-        # --- Monk protection: if target is protected, Imp's kill fails ---
-        elif target.hidden_state.get("protected_by_monk"):
-            gs.memory["killed_by_demon"] = None
-            gs.log_secret(f"Imp tried to kill {target.label()}, but they were protected by the Monk.")
-            success = False
-        # Soldier logic: immune to demon kills and poison unless drunk
-        elif target.role.name == "Soldier" and is_sober_trustworthy(target):
-            gs.memory["killed_by_demon"] = None
-            if DEBUG_ALL_LOGS:
-                gs.log_secret(f"Imp tried to kill Soldier {target.label()} but failed (immune).")
-            success = False
         else:
-            # --- Mark the target as dead immediately to prevent double-kill ---
-            target.alive = False
-            gs.memory["killed_by_demon"] = target
-            success = True
+            # --- Use attempt_kill_player to handle all death mechanics properly ---
+            success = attempt_kill_player(gs, target, "Imp", "night", player)
+            if success:
+                gs.memory["killed_by_demon"] = target
         
         gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
     
@@ -4206,21 +4684,25 @@ def slayer_ability(gs: GameState, player: Player, target=None):
     gs.log_secret(f"Slayer {player.label()} attempts shot on {target.label()}")
     
     # Check if shot succeeds (target is Demon and Slayer is sober/trustworthy)
-    if target.role.alignment is Alignment.DEMON and is_sober_trustworthy(player):
-        target.alive = False
-        target.hidden_state["died_night"] = "day"  # Track that they died during the day (not eligible for Shabaloth regurgitation)
-        gs.log_secret(f"Slayer shot SUCCESS: {player.label()} killed Demon {target.label()}")
-        gs.memory["executed_today"] = target
-        # Track this day death for Zombuul ability
-        if "day_deaths" not in gs.memory:
-            gs.memory["day_deaths"] = []
-        gs.memory["day_deaths"].append(target.seat)
-        # Check win condition after Slayer kills Demon
-        if check_win_condition(gs):
-            gs.phase = Phase.END
-        return True
+    if target.alignment is Alignment.DEMON and is_sober_trustworthy(player):
+        # Use attempt_kill_player to handle all death mechanics properly
+        success = attempt_kill_player(gs, target, "Slayer shot", "day")
+        if success:
+            gs.log_secret(f"Slayer shot SUCCESS: {player.label()} killed Demon {target.label()}")
+            gs.memory["executed_today"] = target
+            # Track this day death for Zombuul ability
+            if "day_deaths" not in gs.memory:
+                gs.memory["day_deaths"] = []
+            gs.memory["day_deaths"].append(target.seat)
+            # Check win condition after Slayer kills Demon
+            if check_win_condition(gs):
+                gs.phase = Phase.END
+            return True
+        else:
+            gs.log_secret(f"Slayer shot FAILED: {player.label()} shot Demon {target.label()} but they didn't die (protected by ability).")
+            return False
     else:
-        if target.role.alignment is not Alignment.DEMON:
+        if target.alignment is not Alignment.DEMON:
             gs.log_secret(f"Slayer shot FAILED: {player.label()} shot {target.label()} but they were not the Demon (they are {target.role.name})")
         else:
             gs.log_secret(f"Slayer shot FAILED: {player.label()} shot {target.label()} but the Slayer was not sober/trustworthy")
@@ -4282,6 +4764,12 @@ class GameEndException(Exception):
     """Exception to signal early game termination"""
     pass
 
+class LLMServiceError(Exception):
+    """Exception to signal fatal LLM API/billing failures."""
+    pass
+
+
+
 # --- Bad Moon Rising Character Abilities ---
 
 # First Night Abilities
@@ -4291,7 +4779,7 @@ def grandparent_ability(gs: GameState, player: Player):
     
     def normal_fn():
         # Find good players (Townsfolk and Outsiders)
-        good_players = [p for p in gs.players if p.role.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}]
+        good_players = [p for p in gs.players if p is not player and p.alignment in {Alignment.TOWNSFOLK, Alignment.OUTSIDER}]
         if not good_players:
             return None
         
@@ -4307,7 +4795,10 @@ def grandparent_ability(gs: GameState, player: Player):
     
     def drunk_fn():
         # Drunk Grandparent gets false information
-        random_player = random.choice(gs.players)
+        candidates = [p for p in gs.players if p is not player]
+        if not candidates:
+            return None
+        random_player = random.choice(candidates)
         random_role = random.choice(TOWNSFOLK + OUTSIDERS).name
         msg = f"You know that {random_player.name} (Seat {random_player.seat}) is the {random_role}."
         if is_human_player(player):
@@ -4326,7 +4817,7 @@ def capo_crimini_ability(gs: GameState, player: Player):
     
     def normal_fn():
         # Find all Outsiders in play
-        outsiders_in_play = [p for p in gs.players if p.role.alignment == Alignment.OUTSIDER]
+        outsiders_in_play = [p for p in gs.players if p.alignment == Alignment.OUTSIDER]
         outsider_names = [p.role.name for p in outsiders_in_play]
         
         msg = f"You know that the following Outsiders are in play: {', '.join(outsider_names)}."
@@ -4430,8 +4921,8 @@ def sailor_ability(gs: GameState, player: Player):
     """Each night, choose a living player. Either you or they will become drunk until dusk (this is random and unknown to you). You can not die."""
     gs.log_action_start("sailor_ability", player)
     
-    # Sailor cannot die normally (permanent protection, except when they become drunk, or if they are killed by assassin)
-    player.can_die = False
+    # Sailor protection depends on current sobriety/poisoning state.
+    refresh_sailor_survivability(player)
     
     def normal_fn():
         targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
@@ -4499,7 +4990,7 @@ def sailor_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["sailor"] = {"type": "sailor", "data": {"target": result["target"], "night": gs.day}}
+        append_memory_history(player, "sailor", "sailor", {"target": result["target"], "night": gs.day})
     gs.log_action_end("sailor_ability", f"Targeted seat {result['target']}" if result else "Failed", player)
 
 def housekeeper_ability(gs: GameState, player: Player):
@@ -4598,7 +5089,7 @@ def housekeeper_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["housekeeper"] = {"type": "housekeeper", "data": {"targets": result["targets"], "woke_count": result["woke_count"], "night": gs.day}}
+        append_memory_history(player, "housekeeper", "housekeeper", {"targets": result["targets"], "woke_count": result["woke_count"], "night": gs.day})
     gs.log_action_end("housekeeper_ability", f"Targeted seats {result['targets']}, {result['woke_count']} woke" if result else "Failed", player)
 
 def exorcist_ability(gs: GameState, player: Player):
@@ -4673,7 +5164,7 @@ def exorcist_ability(gs: GameState, player: Player):
         player.memory["exorcist_last_target"] = target.seat
         
         # Check if target is the Demon
-        if target.role.alignment == Alignment.DEMON:
+        if target.alignment == Alignment.DEMON:
             # Demon learns about Exorcist and doesn't wake tonight
             target.memory["exorcist_revealed"] = {"exorcist_seat": player.seat, "night": gs.day}
             gs.memory["demon_blocked_tonight"] = True
@@ -4687,7 +5178,7 @@ def exorcist_ability(gs: GameState, player: Player):
         if is_human_player(player):
             print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
         
-        return {"target": target.seat, "was_demon": target.role.alignment == Alignment.DEMON}
+        return {"target": target.seat}
     
     def drunk_fn():
         # Drunk Exorcist makes random choice but doesn't actually block Demon
@@ -4715,13 +5206,13 @@ def exorcist_ability(gs: GameState, player: Player):
         if is_human_player(player):
             print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
         
-        return {"target": target.seat, "was_demon": False}
+        return {"target": target.seat}
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
         # Store both the last target (for restriction) and the full data (for memory display)
         player.memory["exorcist_last_target"] = result["target"]
-        player.memory["exorcist"] = {"type": "exorcist", "data": {"target": result["target"], "was_demon": result["was_demon"], "night": gs.day}}
+        append_memory_history(player, "exorcist", "exorcist", {"target": result["target"], "night": gs.day})
     gs.log_action_end("exorcist_ability", f"Targeted seat {result['target']}" if result else "Failed", player)
 
 def get_innkeeper_choice(gs: GameState, player: Player, targets):
@@ -4852,7 +5343,7 @@ def innkeeper_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["innkeeper"] = {"type": "innkeeper", "data": {"targets": result["targets"], "night": gs.day}}
+        append_memory_history(player, "innkeeper", "innkeeper", {"targets": result["targets"], "night": gs.day})
     gs.log_action_end("innkeeper_ability", f"Protected seats {result['targets']}, drunk seat {result['drunk_target']}" if result else "Failed", player)
 
 def get_gambler_choice(gs: GameState, player: Player, targets):
@@ -4910,34 +5401,40 @@ def get_gambler_choice(gs: GameState, player: Player, targets):
         # LLM player - use LLM to make choice
         prompt = format_player_prompt(gs, player, "target_selection")
         effective_role_name = get_effective_role_name(player)
-        prompt.append({
-            "role": "system",
-            "content": f"You are the {effective_role_name}. Each night*, choose a player & guess their character: if you guess wrong, you die. IMPORTANT: You should probably only guess people who have publicly claimed to be a specific role. Guessing randomly is very risky and likely to kill you. Again, it is EXTREMELY HIGHLY advised that you ONLY guess roles that people have publicly claimed a specific role in the public discussion log, or else you are very likely going to die aimlessly. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-        })
-        
-        llm_response = call_gpt(prompt, label=f"Gambler targeting (Seat {player.seat})")
-        target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
-        
-        # Find the target
-        target = next((t for t in targets if t.name.lower() == target_name.lower()), None)
-        if not target:
-            # Fallback to random choice if LLM fails
-            target = random.choice(targets)
-        
-        # LLM also guesses a role
         # Determine which character sets to include based on gs.character_set
         # 1 = Trouble Brewing, 2 = Bad Moon Rising, 3 = Both
         include_tb = gs.character_set in [1, 3]
         include_bmr = gs.character_set in [2, 3]
-        
+
         # Get available roles based on character set
         available_roles = []
         if include_tb:
             available_roles.extend([r.name for r in TB_ROLES])
         if include_bmr:
             available_roles.extend([r.name for r in BMR_ROLES])
+        prompt.append({
+            "role": "system",
+            "content": (
+                f"You are the {effective_role_name}. Each night*, choose a player & guess their character: if you guess wrong, you die. "
+                "IMPORTANT: You should probably only guess people who have publicly claimed to be a specific role. Guessing randomly is very risky and likely to kill you. "
+                "Again, it is EXTREMELY HIGHLY advised that you ONLY guess roles that people have publicly claimed a specific role in the public discussion log, or else you are very likely going to die aimlessly. "
+                f"Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}. "
+                f"Available roles: {', '.join(available_roles)}. "
+                "Your final answer MUST end with exactly one bracketed choice in this format: [Name, Guessed role]. "
+                "Example: [Bravo, Grandparent]. Do not output multiple bracketed choices."
+            )
+        })
         
-        guessed_role = random.choice(available_roles)  # Fallback for LLM
+        llm_response = call_gpt(prompt, label=f"Gambler targeting (Seat {player.seat})")
+
+        target, guessed_role = parse_gambler_llm_choice(llm_response, targets, available_roles)
+        if target is None:
+            parsed_target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
+            target = next((t for t in targets if t.name.lower() == str(parsed_target_name).lower()), None)
+        if target is None:
+            target = random.choice(targets)
+        if guessed_role is None:
+            guessed_role = random.choice(available_roles)
     
     return {"target": target, "guessed_role": guessed_role}
 
@@ -4962,11 +5459,10 @@ def gambler_ability(gs: GameState, player: Player):
         # Check if guess is correct (case-insensitive)
         correct = (target.role.name.lower() == guessed_role.lower())
         
+        msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}."
         if correct:
-            msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}. Your guess is correct!"
             gs.log_secret(f"Gambler {player.label()} correctly guesses {target.label()} is {guessed_role}.")
         else:
-            msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}. Your guess is wrong - you die!"
             gs.log_secret(f"Gambler {player.label()} incorrectly guesses {target.label()} is {guessed_role}, Gambler dies.")
             # Kill the Gambler
             attempt_kill_player(gs, player, "Gambler ability")
@@ -4997,12 +5493,9 @@ def gambler_ability(gs: GameState, player: Player):
         
         # Do NOT kill the Gambler (ability has no effect)
         
-        # Create message for player (they think their ability worked)
+        # Create message for player without revealing correctness
         correct = (target.role.name.lower() == guessed_role.lower())
-        if correct:
-            msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}. Your guess is correct!"
-        else:
-            msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}. Your guess is wrong - you die!"
+        msg = f"You choose {target.name} (Seat {target.seat}) and guess they are the {guessed_role}."
         
         if is_human_player(player):
             print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
@@ -5011,7 +5504,7 @@ def gambler_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["gambler"] = {"type": "gambler", "data": {"target": result["target"], "guessed_role": result["guessed_role"], "correct": result["correct"], "night": gs.day}}
+        append_memory_history(player, "gambler", "gambler", {"target": result["target"], "guessed_role": result["guessed_role"], "night": gs.day})
     gs.log_action_end("gambler_ability", f"Targeted seat {result['target']}, guessed {result['guessed_role']}, {'correct' if result['correct'] else 'incorrect'}" if result else "Failed", player)
 
 def get_courtier_choice(gs: GameState, player: Player):
@@ -5105,12 +5598,12 @@ def courtier_ability(gs: GameState, player: Player):
             
             # Do NOT mark ability as used - they can use it later
             return {"chosen_role": None, "affected_players": []}
-        
+
         # Find all players with that role
         players_with_role = [p for p in gs.players if p.role.name == chosen_role]
-        
+        msg = f"You choose the {chosen_role}."
+
         if not players_with_role:
-            msg = f"You choose the {chosen_role}. If they are in play (and if you are not drunk/poisoned), that character will be drunk for 3 days and 3 nights."
             gs.log_secret(f"Courtier {player.label()} chooses {chosen_role} but no one has that role.")
         else:
             # Make all players with that role drunk for 3 nights + 3 days
@@ -5118,7 +5611,6 @@ def courtier_ability(gs: GameState, player: Player):
                 mark_drunk(target, gs.day + 3)  # Drunk for 3 nights + 3 days
             
             target_names = [p.name for p in players_with_role]
-            msg = f"You choose the {chosen_role}. {', '.join(target_names)} are drunk for 3 nights and 3 days."
             gs.log_secret(f"Courtier {player.label()} makes {', '.join(target_names)} drunk for 3 nights and 3 days.")
         
         # Mark ability as used
@@ -5151,20 +5643,14 @@ def courtier_ability(gs: GameState, player: Player):
             return {"chosen_role": None, "affected_players": []}
         
         players_with_role = [p for p in gs.players if p.role.name == chosen_role]
+        msg = f"You choose the {chosen_role}."
         
         # Drunk Courtier's ability has no effect, but they think it does
         # They are not told that their ability failed
         gs.log_secret(f"Drunk Courtier {player.label()} chooses {chosen_role}, but their ability has no effect (they are drunk/poisoned).")
         
         # Do NOT mark anyone as drunk (ability has no effect)
-        
-        # Create message for player (they think their ability worked)
-        if not players_with_role:
-            msg = f"You choose the {chosen_role}. If they are in play (and if you are not drunk/poisoned), that character will be drunk for 3 days and 3 nights." 
-        else:
-            target_names = [p.name for p in players_with_role]
-            msg = f"You choose the {chosen_role}. {', '.join(target_names)} are drunk for 3 nights and 3 days."
-        
+
         # Mark ability as used (even though it had no effect)
         player.memory["courtier_used"] = True
         
@@ -5176,7 +5662,7 @@ def courtier_ability(gs: GameState, player: Player):
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
         if result["chosen_role"] is not None:
-            player.memory["courtier"] = {"type": "courtier", "data": {"chosen_role": result["chosen_role"], "affected_players": result["affected_players"], "night": gs.day}}
+            append_memory_history(player, "courtier", "courtier", {"chosen_role": result["chosen_role"], "night": gs.day})
             gs.log_action_end("courtier_ability", f"Chose {result['chosen_role']}, affected {len(result['affected_players'])} players", player)
         else:
             gs.log_action_end("courtier_ability", "Chose to pass, saved ability for later", player)
@@ -5257,7 +5743,6 @@ def professor_ability(gs: GameState, player: Player):
             return None
         
         target = choice_result["target"]
-        target_name = choice_result["target_name"]
         
         # Handle choosing no-one
         if target is None:
@@ -5265,17 +5750,14 @@ def professor_ability(gs: GameState, player: Player):
             # Do NOT mark ability as used - they can still use it later
             # player.memory["professor_used"] = True  # REMOVED - ability remains available
             
-            if is_human_player(player):
-                print_colored(f"[PRIVATE] You choose to target no-one tonight. Your ability is still usable for this game.", 'PRIVATE')
-            
-            return {"target": None, "was_townsfolk": False, "resurrected": False}
+            return {"target": None, "resurrected": False}
         
         # Provide better targeting information
         targeting_desc = get_targeting_description(allow_dead=True)
         gs.log_secret(f"Professor {player.label()} can target {targeting_desc}.")
         
         # Check if target is a Townsfolk
-        if target.role.alignment == Alignment.TOWNSFOLK:
+        if target.alignment == Alignment.TOWNSFOLK:
             # Resurrect the player but don't announce yet
             gs.log_secret(f"Professor {player.label()} resurrecting {target.label()} - before: alive={target.alive}, last_alive_day={target.memory.get('last_alive_day', 'None')}")
             target.alive = True
@@ -5302,13 +5784,7 @@ def professor_ability(gs: GameState, player: Player):
         # Mark ability as used
         player.memory["professor_used"] = True
         
-        # Create message for player
-        msg = f"You choose {target.name} (Seat {target.seat}). You are not told whether or not they are a Townsfolk."
-        
-        if is_human_player(player):
-            print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
-        
-        return {"target": target.seat, "was_townsfolk": target.role.alignment == Alignment.TOWNSFOLK, "resurrected": target.alive}
+        return {"target": target.seat, "resurrected": target.alignment == Alignment.TOWNSFOLK}
     
     def drunk_fn():
         # Drunk Professor thinks their ability works but it actually doesn't, and they are not told anything different.
@@ -5323,7 +5799,6 @@ def professor_ability(gs: GameState, player: Player):
             return None
         
         target = choice_result["target"]
-        target_name = choice_result["target_name"]
         
         # Handle choosing no-one
         if target is None:
@@ -5331,10 +5806,7 @@ def professor_ability(gs: GameState, player: Player):
             # Do NOT mark ability as used - they can still use it later
             # player.memory["professor_used"] = True  # REMOVED - ability remains available
             
-            if is_human_player(player):
-                print_colored(f"[PRIVATE] You choose to target no-one tonight. Your ability is still usable for this game.", 'PRIVATE')
-            
-            return {"target": None, "was_townsfolk": False, "resurrected": False}
+            return {"target": None, "resurrected": False}
         
         # Drunk Professor's ability has no effect, but they think it does
         # They are not told that their ability failed
@@ -5343,17 +5815,11 @@ def professor_ability(gs: GameState, player: Player):
         # Mark ability as used
         player.memory["professor_used"] = True
         
-        # Create message for player (they think their ability worked)
-        msg = f"You choose {target.name} (Seat {target.seat}). You are not told whether or not they are a Townsfolk."
-        
-        if is_human_player(player):
-            print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
-        
-        return {"target": target.seat, "was_townsfolk": False, "resurrected": False}
+        return {"target": target.seat, "resurrected": False}
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["professor"] = {"type": "professor", "data": {"target": result["target"], "was_townsfolk": result["was_townsfolk"], "resurrected": result["resurrected"], "night": gs.day}}
+        append_memory_history(player, "professor", "professor", {"target": result["target"], "night": gs.day})
         
         # Log the action end with appropriate message
         if result["target"] is None:
@@ -5370,7 +5836,7 @@ def capo_crimini_night_ability(gs: GameState, player: Player):
     
     # Check if an Outsider died today
     executed_today = gs.memory.get("executed_today")
-    if not executed_today or executed_today.role.alignment != Alignment.OUTSIDER:
+    if not executed_today or executed_today.alignment != Alignment.OUTSIDER:
         gs.log_secret(f"Capo Crimini {player.label()} cannot use ability - no Outsider died today.")
         gs.log_action_end("capo_crimini_night_ability", "No Outsider died today", player)
         return
@@ -5574,7 +6040,7 @@ def devils_advocate_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["devils_advocate"] = {"type": "devils_advocate", "data": {"target": result["target"], "night": gs.day}}
+        append_memory_history(player, "devils_advocate", "devils_advocate", {"target": result["target"], "night": gs.day})
     gs.log_action_end("devils_advocate_ability", f"Protected seat {result['target']}" if result else "Failed", player)
 
 def get_assassin_choice(gs: GameState, player: Player, targets):
@@ -5720,13 +6186,18 @@ def assassin_ability(gs: GameState, player: Player):
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
-        player.memory["assassin"] = {"type": "assassin", "data": {"target": result["target"], "night": gs.day}}
+        append_memory_history(player, "assassin", "assassin", {"target": result["target"], "night": gs.day})
     gs.log_action_end("assassin_ability", f"Killed seat {result['target']}" if result else "Failed", player)
 
 # Demon Abilities
 def run_zombuul_ability(gs: GameState, player: Player):
     """Zombuul: Each night*, if no-one died today, choose a player: they die. The 1st time you die, you live but register as dead."""
     gs.log_action_start("zombuul_ability", player)
+
+    if player.hidden_state.pop("zombuul_skip_next_night_kill", False):
+        gs.log_secret(f"Zombuul {player.label()} skips killing on the night immediately after its execution.")
+        gs.log_action_end("zombuul_ability", "Skipped first night after execution", player)
+        return
     
     # Check if anyone died today (including executions and other day deaths)
     # Zombuul kills if no one died during the day
@@ -5768,16 +6239,7 @@ def run_zombuul_ability(gs: GameState, player: Player):
                     print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
         else:
             # LLM player - use LLM to make choice
-            prompt = format_player_prompt(gs, player, "target_selection")
-            effective_role_name = get_effective_role_name(player)
-            prompt.append({
-                "role": "system",
-                "content": f"You are the {effective_role_name}. Each night*, if no-one died today, choose a player: they die. No one died today, so you must kill someone. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-            })
-            prompt.append({
-                "role": "system",
-                "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-            })
+            prompt = build_demon_target_prompt(gs, player, get_zombuul_target_prompt_text(), targets)
             
             llm_response = call_gpt(prompt, label=f"Zombuul targeting (Seat {player.seat})")
             target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
@@ -5789,7 +6251,7 @@ def run_zombuul_ability(gs: GameState, player: Player):
                 target = random.choice(targets)
         
         # Kill the target
-        attempt_kill_player(gs, target, "Zombuul")
+        attempt_kill_player(gs, target, "Zombuul", "night", player)
         gs.memory["killed_by_demon"] = target
         
         gs.log_secret(f"Zombuul → {player.label()} kills {target.label()} because no one died today.")
@@ -5806,7 +6268,7 @@ def run_pukka_ability(gs: GameState, player: Player):
     previously_poisoned = gs.memory.get("pukka_poisoned_player")
     if previously_poisoned and previously_poisoned.poisoned:
         if previously_poisoned.alive:
-            success = attempt_kill_player(gs, previously_poisoned, "Pukka poison")
+            success = attempt_kill_player(gs, previously_poisoned, "Pukka poison", "night", player)
             if success:
                 # Track this death for dawn announcement
                 if "night_deaths_this_night" not in gs.memory:
@@ -5817,6 +6279,8 @@ def run_pukka_ability(gs: GameState, player: Player):
             gs.log_secret(f"Pukka → {player.label()} cannot kill previously poisoned {previously_poisoned.label()} (already dead).")
         previously_poisoned.poisoned = False  # Make them healthy
         previously_poisoned.poisoned_turns = 0  # Reset poison counter
+        previously_poisoned.hidden_state.pop("poisoned_by", None)
+        previously_poisoned.hidden_state.pop("was_ever_pukka_poisoned", None)
     
     # Choose new target to poison
     targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
@@ -5848,16 +6312,7 @@ def run_pukka_ability(gs: GameState, player: Player):
                 print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
     else:
         # LLM player - use LLM to make choice
-        prompt = format_player_prompt(gs, player, "target_selection")
-        effective_role_name = get_effective_role_name(player)
-        prompt.append({
-            "role": "system",
-            "content": f"You are the {effective_role_name}. Each night, choose a player: they are poisoned. The previously poisoned player dies then becomes healthy. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-        })
-        prompt.append({
-            "role": "system",
-            "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-        })
+        prompt = build_demon_target_prompt(gs, player, get_pukka_target_prompt_text(), targets)
         
         llm_response = call_gpt(prompt, label=f"Pukka targeting (Seat {player.seat})")
         target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
@@ -5883,7 +6338,7 @@ def run_shabaloth_ability(gs: GameState, player: Player):
     last_night_targets = gs.memory.get("shabaloth_last_targets", [])
     if last_night_targets:
         # Find dead players from last night's targets who are eligible for regurgitation
-        # Only players killed by Shabaloth the previous night can be regurgitated
+        # Only players actually killed by Shabaloth the previous night can be regurgitated
         dead_targets = []
         for target_seat in last_night_targets:
             target = next((p for p in gs.players if p.seat == target_seat), None)
@@ -5894,7 +6349,10 @@ def run_shabaloth_ability(gs: GameState, player: Player):
                 if ("died_night" in target.hidden_state and 
                     isinstance(target.hidden_state["died_night"], int) and 
                     target.hidden_state["died_night"] == gs.day - 1):
+                    # Additional safety check: ensure this was actually a Shabaloth kill
+                    # (The target should be in shabaloth_last_targets only if they were killed by Shabaloth)
                     dead_targets.append(target_seat)
+                    gs.log_secret(f"Shabaloth {player.label()} can regurgitate {target.label()} (killed by Shabaloth last night).")
         
         if dead_targets:
             gs.log_secret(f"Shabaloth {player.label()} has {len(dead_targets)} eligible targets for regurgitation from last night.")
@@ -5968,16 +6426,7 @@ def run_shabaloth_ability(gs: GameState, player: Player):
                     print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
     else:
         # LLM player - use LLM to make choice
-        prompt = format_player_prompt(gs, player, "target_selection")
-        effective_role_name = get_effective_role_name(player)
-        prompt.append({
-            "role": "system",
-            "content": f"You are the {effective_role_name}. Each night*, choose 2 players: they die. A dead player you chose last night might be regurgitated. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-        })
-        prompt.append({
-            "role": "system",
-            "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-        })
+        prompt = build_demon_target_prompt(gs, player, get_shabaloth_target_prompt_text(), targets)
         
         llm_response = call_gpt(prompt, label=f"Shabaloth targeting (Seat {player.seat})")
         target_names = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
@@ -6001,11 +6450,11 @@ def run_shabaloth_ability(gs: GameState, player: Player):
     # Kill both targets
     killed_targets = []
     for target in selected_targets:
-        if attempt_kill_player(gs, target, "Shabaloth"):
+        if attempt_kill_player(gs, target, "Shabaloth", "night", player):
             killed_targets.append(target)
     
-    # Store targets for next night's regurgitation
-    gs.memory["shabaloth_last_targets"] = [target.seat for target in selected_targets]
+    # Store only successfully killed targets for next night's regurgitation
+    gs.memory["shabaloth_last_targets"] = [target.seat for target in killed_targets]
     
     if killed_targets:
         gs.memory["killed_by_demon"] = killed_targets[0]  # Store first killed for night death reporting
@@ -6028,7 +6477,7 @@ def run_po_ability(gs: GameState, player: Player):
     # Po cannot kill 3 people at once on night 2 (second night)
     # They can only kill 3 if their last choice was no-one AND it's not night 2
     # This prevents the exploit of choosing no-one on night 1, then killing 3 on night 2
-    must_choose_three = (last_choice is None and gs.day != 2)
+    must_choose_three = (last_choice == "no-one" and gs.day != 2)
     
     targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
     
@@ -6060,109 +6509,44 @@ def run_po_ability(gs: GameState, player: Player):
                 print_colored(f"[PRIVATE] {i}. {target.name} (Seat {target.seat})", 'PRIVATE')
             
             selected_targets = []
-            if gs.day == 2 and must_choose_three:
-                # Night 2 restriction: can only choose 1 or no-one
-                print_colored(f"[PRIVATE] Due to night 2 restrictions, you can only choose 1 player or no-one.", 'PRIVATE')
+            # Normal 3-choice logic
+            for choice_num in [1, 2, 3]:
                 while True:
-                    choice = input(f"[PRIVATE] Enter your choice (1 for a player, 2 for no-one): ").strip()
-                    if choice == "1":
-                        if not targets:
-                            print_colored(f"[PRIVATE] No valid targets available. Choosing no-one.", 'PRIVATE')
-                            selected_targets = []
-                            break
-                        
-                        print_colored(f"[PRIVATE] Choose 1 player to kill:", 'PRIVATE')
-                        for i, target in enumerate(targets, 1):
-                            print_colored(f"[PRIVATE] {i}. {target.name} (Seat {target.seat})", 'PRIVATE')
-                        
-                        while True:
-                            try:
-                                target_choice = int(input(f"[PRIVATE] Enter your choice (1-{len(targets)}): ").strip())
-                                if 1 <= target_choice <= len(targets):
-                                    selected_targets = [targets[target_choice - 1]]
-                                    break
-                                else:
-                                    print_colored(f"[PRIVATE] Please enter a number between 1 and {len(targets)}.", 'PRIVATE')
-                            except ValueError:
-                                print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
-                        break
-                    elif choice == "2":
-                        selected_targets = []
-                        break
-                    else:
-                        print_colored(f"[PRIVATE] Please enter 1 or 2.", 'PRIVATE')
-            else:
-                # Normal 3-choice logic
-                for choice_num in [1, 2, 3]:
-                    while True:
-                        try:
-                            choice = int(input(f"[PRIVATE] Enter your {choice_num}{'st' if choice_num == 1 else 'nd' if choice_num == 2 else 'rd'} choice (1-{len(targets)}): ").strip())
-                            if 1 <= choice <= len(targets):
-                                target = targets[choice - 1]
-                                if target not in selected_targets:
-                                    selected_targets.append(target)
-                                    break
-                                else:
-                                    print_colored(f"[PRIVATE] You already chose {target.name}. Please choose a different player.", 'PRIVATE')
+                    try:
+                        choice = int(input(f"[PRIVATE] Enter your {choice_num}{'st' if choice_num == 1 else 'nd' if choice_num == 2 else 'rd'} choice (1-{len(targets)}): ").strip())
+                        if 1 <= choice <= len(targets):
+                            target = targets[choice - 1]
+                            if target not in selected_targets:
+                                selected_targets.append(target)
+                                break
                             else:
-                                print_colored(f"[PRIVATE] Please enter a number between 1 and {len(targets)}.", 'PRIVATE')
-                        except ValueError:
-                            print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
+                                print_colored(f"[PRIVATE] You already chose {target.name}. Please choose a different player.", 'PRIVATE')
+                        else:
+                            print_colored(f"[PRIVATE] Please enter a number between 1 and {len(targets)}.", 'PRIVATE')
+                    except ValueError:
+                        print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
         else:
             # LLM player - use LLM to make choice
-            prompt = format_player_prompt(gs, player, "target_selection")
-            effective_role_name = get_effective_role_name(player)
-            if gs.day == 2:
-                prompt.append({
-                    "role": "system",
-                    "content": f"You are the {effective_role_name}. Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. Your last choice was no-one, but you cannot kill 3 people on night 2. You must choose 1 player or no-one. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-                })
-            else:
-                prompt.append({
-                    "role": "system",
-                    "content": f"You are the {effective_role_name}. Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. Your last choice was no-one, so you must choose 3 players. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-                })
-            prompt.append({
-                "role": "system",
-                "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-            })
+            prompt = build_demon_target_prompt(gs, player, get_po_target_prompt_text(True, gs.day == 2), targets)
             
             llm_response = call_gpt(prompt, label=f"Po targeting (Seat {player.seat})")
             target_names = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets] + (["no-one"] if gs.day > 1 else []), player=player)
             
             # Parse LLM response for targets
             if isinstance(target_names, str):
-                if gs.day == 2 and must_choose_three:
-                    # Night 2 restriction: only choose 1 player or no-one
-                    if target_names.lower() == "no-one":
-                        selected_targets = []
-                    else:
-                        words = target_names.split()
-                        selected_targets = []
-                        for word in words:
-                            if len(selected_targets) >= 1:
-                                break
-                            target = next((t for t in targets if t.name.lower() == word.lower()), None)
-                            if target and target not in selected_targets:
-                                selected_targets.append(target)
-                        
-                        if len(selected_targets) < 1:
-                            # Fallback to random choice if LLM fails
-                            selected_targets = random.sample(targets, 1)
-                else:
-                    # Normal 3-choice logic
-                    words = target_names.split()
-                    selected_targets = []
-                    for word in words:
-                        if len(selected_targets) >= 3:
-                            break
-                        target = next((t for t in targets if t.name.lower() == word.lower()), None)
-                        if target and target not in selected_targets:
-                            selected_targets.append(target)
-                    
-                    if len(selected_targets) < 3:
-                        # Fallback to random choice if LLM fails
-                        selected_targets = random.sample(targets, 3)
+                # Normal 3-choice logic
+                words = target_names.split()
+                selected_targets = []
+                for word in words:
+                    if len(selected_targets) >= 3:
+                        break
+                    target = next((t for t in targets if t.name.lower() == word.lower()), None)
+                    if target and target not in selected_targets:
+                        selected_targets.append(target)
+                
+                if len(selected_targets) < 3:
+                    # Fallback to random choice if LLM fails
+                    selected_targets = random.sample(targets, 3)
         
         # Track the choice for next night
         if must_choose_three:
@@ -6190,7 +6574,7 @@ def run_po_ability(gs: GameState, player: Player):
                     if not targets:
                         print_colored(f"[PRIVATE] No valid targets available. Choosing no-one.", 'PRIVATE')
                         selected_targets = []
-                        gs.memory["po_last_choice"] = None
+                        gs.memory["po_last_choice"] = "no-one"
                         break
                     
                     print_colored(f"[PRIVATE] Choose a player to kill:", 'PRIVATE')
@@ -6211,22 +6595,13 @@ def run_po_ability(gs: GameState, player: Player):
                     break
                 elif choice == "2":
                     selected_targets = []
-                    gs.memory["po_last_choice"] = None
+                    gs.memory["po_last_choice"] = "no-one"
                     break
                 else:
                     print_colored(f"[PRIVATE] Please enter 1 or 2.", 'PRIVATE')
         else:
             # LLM player - use LLM to make choice
-            prompt = format_player_prompt(gs, player, "target_selection")
-            effective_role_name = get_effective_role_name(player)
-            prompt.append({
-                "role": "system",
-                "content": f"You are the {effective_role_name}. Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. You can choose 1 player or no-one. Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
-            })
-            prompt.append({
-                "role": "system",
-                "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
-            })
+            prompt = build_demon_target_prompt(gs, player, get_po_target_prompt_text(False), targets)
             
             llm_response = call_gpt(prompt, label=f"Po targeting (Seat {player.seat})")
             target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets] + ["no-one"], player=player)
@@ -6239,15 +6614,15 @@ def run_po_ability(gs: GameState, player: Player):
                     gs.memory["po_last_choice"] = target.seat
                 else:
                     selected_targets = []
-                    gs.memory["po_last_choice"] = None
+                    gs.memory["po_last_choice"] = "no-one"
             else:
                 selected_targets = []
-                gs.memory["po_last_choice"] = None
+                gs.memory["po_last_choice"] = "no-one"
     
     # Kill selected targets
     killed_targets = []
     for target in selected_targets:
-        if attempt_kill_player(gs, target, "Po"):
+        if attempt_kill_player(gs, target, "Po", "night", player):
             killed_targets.append(target)
     
     if killed_targets:
@@ -6269,6 +6644,7 @@ def run_day_actions(gs: GameState):
     moonchildren = [p for p in gs.players if p.role.name == "Moonchild" and not p.alive]
     for moonchild in moonchildren:
         if ("moonchild_learned_death" in moonchild.memory and 
+            moonchild.memory.get("moonchild_death_source") == "day" and
             "moonchild_ability_used" not in moonchild.memory):
             moonchild_ability(gs, moonchild)
 
@@ -6327,69 +6703,15 @@ def moonchild_ability(gs: GameState, player: Player): # Unfortunately, I have no
     gs.log_action_start("moonchild_ability", player)
     
     def normal_fn():
-        # Choose a random alive player
-        alive_players = [p for p in gs.players if p.alive and p != player]
-        if not alive_players:
-            gs.log_secret(f"Moonchild {player.label()} has no valid targets.")
-            return None
-        
-        # Get player choice (common logic for both normal and drunk)
-        choice_result = get_moonchild_choice(gs, player, alive_players)
-        if choice_result is None:
-            return None
-        
-        target = choice_result["target"]
-        
-        # Store the choice
-        player.memory["moonchild_target"] = {"target": target.seat, "day": gs.day}
-        
-        # Mark that the Moonchild ability has been used
-        player.memory["moonchild_ability_used"] = True
-        
-        msg = f"You publicly choose {target.name} (Seat {target.seat})."
-        if is_human_player(player):
-            print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
-        gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
-        
-        # Announce the choice publicly
-        gs.log_public(f"{player.name} (Seat {player.seat}) publicly chooses {target.name} (Seat {target.seat}).")
-        
-        return {"target": target.seat, "target_alignment": target.role.alignment}
+        return prepare_moonchild_public_announcement(gs, player, public_announce_now=True)
     
     def drunk_fn():
-        # Drunk Moonchild thinks their ability works but it actually doesn't, and they are not told anything different.
-        # They should be able to choose targets as normal, but their ability has no effect
-        alive_players = [p for p in gs.players if p.alive and p != player]
-        if not alive_players:
-            return None
-        
-        # Get player choice (common logic for both normal and drunk)
-        choice_result = get_moonchild_choice(gs, player, alive_players)
-        if choice_result is None:
-            return None
-        
-        target = choice_result["target"]
-        
-        # Drunk Moonchild's ability has no effect, but they think it does
-        # They are not told that their ability failed
-        gs.log_secret(f"Drunk Moonchild {player.label()} targets {target.label()}, but their ability has no effect (they are drunk/poisoned).")
-        
-        # Store the choice (even though it had no effect)
-        player.memory["moonchild_target"] = {"target": target.seat, "day": gs.day}
-        
-        # Mark that the Moonchild ability has been used (even though it had no effect)
-        player.memory["moonchild_ability_used"] = True
-        
-        # Create message for player (they think their ability worked)
-        msg = f"You publicly choose {target.name} (Seat {target.seat})."
-        
-        if is_human_player(player):
-            print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
-        
-        # Announce the choice publicly (even though it had no effect)
-        gs.log_public(f"{player.name} (Seat {player.seat}) publicly chooses {target.name} (Seat {target.seat}).")
-        
-        return {"target": target.seat, "target_alignment": target.role.alignment}
+        result = prepare_moonchild_public_announcement(gs, player, public_announce_now=True)
+        if result:
+            target = next((p for p in gs.players if p.seat == result["target"]), None)
+            if target is not None:
+                gs.log_secret(f"Drunk Moonchild {player.label()} targets {target.label()}, but their ability has no effect (they are drunk/poisoned).")
+        return result
     
     result = resolve_ability(player, normal_fn, drunk_fn)
     if result:
@@ -6413,16 +6735,15 @@ def handle_goon_targeting(gs: GameState, targeting_player: Player, target: Playe
             gs.log_secret(f"Goon {target.label()} makes {targeting_player.label()} drunk until dusk.")
             
             # Change Goon's alignment to match the targeting player
-            original_alignment = target.role.alignment
-            target.role.alignment = targeting_player.role.alignment
-            gs.log_secret(f"Goon {target.label()} changes alignment from {original_alignment.value} to {target.role.alignment.value}.")
+            original_alignment = target.alignment
+            target.hidden_state["current_alignment"] = targeting_player.alignment
+            gs.log_secret(f"Goon {target.label()} changes alignment from {original_alignment.value} to {target.alignment.value}.")
             
             # Mark that Goon has been targeted tonight
             target.memory["goon_targeted_tonight"] = True
             target.memory["goon_alignment_change"] = {
                 "from": original_alignment.value,
-                "to": target.role.alignment.value,
-                "by": targeting_player.seat,
+                "to": target.alignment.value,
                 "night": gs.day
             }
 
@@ -6544,6 +6865,150 @@ def handle_lunatic_night_action(gs: GameState, player: Player):
         # Fallback to Imp behavior
         run_lunatic_imp_ability(gs, player)
 
+
+def record_lunatic_choice(gs: GameState, player: Player, choice_payload: Any, desc: str):
+    player.memory["kill_choice"] = {"target": choice_payload, "night": gs.day}
+    demon = next((p for p in gs.players if p.alignment == Alignment.DEMON), None)
+    if demon:
+        demon.memory["lunatic_choice"] = {"target": choice_payload, "night": gs.day}
+        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose {desc}.")
+
+
+def build_demon_target_prompt(gs: GameState, player: Player, prompt_text: str, targets) -> List[Dict]:
+    effective_role_name = get_effective_role_name(player)
+    prompt = format_player_prompt(gs, player, "target_selection")
+    prompt.append({
+        "role": "system",
+        "content": f"You are the {effective_role_name}. {prompt_text} Available targets: {', '.join(f'{t.name} (Seat {t.seat})' for t in targets)}"
+    })
+    prompt.append({
+        "role": "system",
+        "content": "IMPORTANT: You are the Demon. You should generally avoid targeting your own teammates (other evil players). Focus on eliminating good players to help your team win."
+    })
+    return prompt
+
+
+def get_imp_target_prompt_text() -> str:
+    return "Choose a player to kill."
+
+
+def get_zombuul_target_prompt_text() -> str:
+    return "Each night*, if no-one died today, choose a player: they die. No one died today, so you must kill someone."
+
+
+def get_pukka_target_prompt_text() -> str:
+    return "Each night, choose a player: they are poisoned. The previously poisoned player dies then becomes healthy."
+
+
+def get_shabaloth_target_prompt_text() -> str:
+    return "Each night*, choose 2 players: they die. A dead player you chose last night might be regurgitated."
+
+
+def get_po_target_prompt_text(must_choose_three: bool, night_two_restriction: bool = False) -> str:
+    if must_choose_three and not night_two_restriction:
+        return "Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. Your last choice was no-one, so you must choose 3 players."
+    if night_two_restriction:
+        return "Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. Your last choice was no-one, but you cannot kill 3 people on night 2. You must choose 1 player or no-one."
+    return "Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight. You can choose 1 player or no-one."
+
+
+def get_lunatic_single_target_choice(gs: GameState, player: Player, targets, prompt_text: str, llm_label: str):
+    if is_human_player(player):
+        effective_role_name = get_effective_role_name(player)
+        print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}), you are the {effective_role_name}.", 'PRIVATE')
+        print_colored(f"[PRIVATE] {prompt_text}", 'PRIVATE')
+        for i, target in enumerate(targets, 1):
+            print_colored(f"[PRIVATE] {i}. {target.name} (Seat {target.seat})", 'PRIVATE')
+        while True:
+            try:
+                choice = int(input(f"[PRIVATE] Enter your choice (1-{len(targets)}): ").strip())
+                if 1 <= choice <= len(targets):
+                    return targets[choice - 1]
+                print_colored(f"[PRIVATE] Please enter a number between 1 and {len(targets)}.", 'PRIVATE')
+            except ValueError:
+                print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
+    if is_llm_player(player):
+        prompt = build_demon_target_prompt(gs, player, prompt_text, targets)
+        llm_response = call_gpt(prompt, label=llm_label)
+        target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
+        return next((t for t in targets if t.name.lower() == str(target_name).lower()), random.choice(targets))
+    return random.choice(targets)
+
+
+def get_lunatic_multi_target_choice(gs: GameState, player: Player, targets, count: int, prompt_text: str, llm_label: str):
+    if is_human_player(player):
+        effective_role_name = get_effective_role_name(player)
+        print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}), you are the {effective_role_name}.", 'PRIVATE')
+        print_colored(f"[PRIVATE] {prompt_text}", 'PRIVATE')
+        for i, target in enumerate(targets, 1):
+            print_colored(f"[PRIVATE] {i}. {target.name} (Seat {target.seat})", 'PRIVATE')
+        selected_targets = []
+        for choice_num in range(1, count + 1):
+            suffix = 'st' if choice_num == 1 else 'nd' if choice_num == 2 else 'rd' if choice_num == 3 else 'th'
+            while True:
+                try:
+                    choice = int(input(f"[PRIVATE] Enter your {choice_num}{suffix} choice (1-{len(targets)}): ").strip())
+                    if 1 <= choice <= len(targets):
+                        target = targets[choice - 1]
+                        if target not in selected_targets:
+                            selected_targets.append(target)
+                            break
+                        print_colored(f"[PRIVATE] You already chose {target.name}. Please choose a different player.", 'PRIVATE')
+                    else:
+                        print_colored(f"[PRIVATE] Please enter a number between 1 and {len(targets)}.", 'PRIVATE')
+                except ValueError:
+                    print_colored(f"[PRIVATE] Please enter a valid number.", 'PRIVATE')
+        return selected_targets
+    if is_llm_player(player):
+        prompt = build_demon_target_prompt(gs, player, prompt_text, targets)
+        llm_response = call_gpt(prompt, label=llm_label)
+        target_names = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets], player=player)
+        selected_targets = []
+        if isinstance(target_names, str):
+            for word in target_names.split():
+                if len(selected_targets) >= count:
+                    break
+                target = next((t for t in targets if t.name.lower() == word.lower()), None)
+                if target and target not in selected_targets:
+                    selected_targets.append(target)
+        if len(selected_targets) < count:
+            return random.sample(targets, count)
+        return selected_targets
+    return random.sample(targets, count)
+
+
+def get_lunatic_po_choice(gs: GameState, player: Player, targets, must_choose_three: bool):
+    effective_role_name = get_effective_role_name(player)
+    if must_choose_three:
+        prompt_text = get_po_target_prompt_text(True)
+        label = f"Po targeting (Seat {player.seat})"
+        return get_lunatic_multi_target_choice(gs, player, targets, 3, prompt_text, label), "three_kills"
+
+    if is_human_player(player):
+        print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}), you are the {effective_role_name}.", 'PRIVATE')
+        print_colored(f"[PRIVATE] Each night*, you may choose a player: they die. If your last choice was no-one, choose 3 players tonight.", 'PRIVATE')
+        print_colored(f"[PRIVATE] You can either:", 'PRIVATE')
+        print_colored(f"[PRIVATE] 1. Choose a player to kill", 'PRIVATE')
+        print_colored(f"[PRIVATE] 2. Choose no-one", 'PRIVATE')
+        while True:
+            choice = input(f"[PRIVATE] Enter your choice (1 or 2): ").strip()
+            if choice == "1":
+                target = get_lunatic_single_target_choice(gs, player, targets, get_po_target_prompt_text(False), f"Po targeting (Seat {player.seat})")
+                return [target], target.seat
+            if choice == "2":
+                return [], "no-one"
+            print_colored(f"[PRIVATE] Please enter 1 or 2.", 'PRIVATE')
+    if is_llm_player(player):
+        prompt = build_demon_target_prompt(gs, player, get_po_target_prompt_text(False), targets)
+        llm_response = call_gpt(prompt, label=f"Po targeting (Seat {player.seat})")
+        target_name = parse_llm_response(llm_response, "targeting", options=[t.name for t in targets] + ["no-one"], player=player)
+        if target_name and str(target_name).lower() != "no-one":
+            target = next((t for t in targets if t.name.lower() == str(target_name).lower()), None)
+            if target:
+                return [target], target.seat
+        return [], "no-one"
+    return [], "no-one"
+
 def run_lunatic_imp_ability(gs: GameState, player: Player):
     """Lunatic thinks they're the Imp - mirror Imp ability."""
     gs.log_action_start("lunatic_imp_ability", player)
@@ -6559,17 +7024,8 @@ def run_lunatic_imp_ability(gs: GameState, player: Player):
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Imp but has no valid targets.")
         return
     
-    # For now, random selection (can be enhanced with LLM later)
-    target = random.choice(targets)
-    
-    # Store the Lunatic's "kill" choice
-    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
-    
-    # Inform the real Demon about the Lunatic's choice
-    demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
-    if demon:
-        demon.memory["lunatic_choice"] = {"target": target.seat, "night": gs.day}
-        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose to 'kill' {target.label()}.")
+    target = get_lunatic_single_target_choice(gs, player, targets, get_imp_target_prompt_text(), f"Imp (Seat {player.seat}) target_selection")
+    record_lunatic_choice(gs, player, target.seat, f"to 'kill' {target.label()}")
     
     # The Lunatic thinks they killed someone, but nothing actually happens
     msg = f"You choose to kill {target.name} (Seat {target.seat})."
@@ -6607,17 +7063,8 @@ def run_lunatic_zombuul_ability(gs: GameState, player: Player):
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Zombuul but has no valid targets.")
         return
     
-    # For now, random selection
-    target = random.choice(targets)
-    
-    # Store the Lunatic's "kill" choice
-    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
-    
-    # Inform the real Demon about the Lunatic's choice
-    demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
-    if demon:
-        demon.memory["lunatic_choice"] = {"target": target.seat, "night": gs.day}
-        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose to 'kill' {target.label()}.")
+    target = get_lunatic_single_target_choice(gs, player, targets, get_zombuul_target_prompt_text(), f"Zombuul targeting (Seat {player.seat})")
+    record_lunatic_choice(gs, player, target.seat, f"to 'kill' {target.label()}")
     
     # The Lunatic thinks they killed someone, but nothing actually happens
     msg = f"You choose to kill {target.name} (Seat {target.seat})."
@@ -6631,10 +7078,7 @@ def run_lunatic_pukka_ability(gs: GameState, player: Player):
     """Lunatic thinks they're the Pukka - mirror Pukka ability."""
     gs.log_action_start("lunatic_pukka_ability", player)
     
-    # Pukka kills on all regular nights (Night 1+)
-    if gs.day == 0:  # First night
-        gs.log_secret(f"Lunatic {player.label()} thinks they are the Pukka but it's the first night - no kill.")
-        return
+    # Pukka can target on all nights including Night 0
     
     # Get targets
     targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
@@ -6642,17 +7086,8 @@ def run_lunatic_pukka_ability(gs: GameState, player: Player):
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Pukka but has no valid targets.")
         return
     
-    # For now, random selection
-    target = random.choice(targets)
-    
-    # Store the Lunatic's "kill" choice
-    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
-    
-    # Inform the real Demon about the Lunatic's choice
-    demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
-    if demon:
-        demon.memory["lunatic_choice"] = {"target": target.seat, "night": gs.day}
-        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose to 'kill' {target.label()}.")
+    target = get_lunatic_single_target_choice(gs, player, targets, get_pukka_target_prompt_text(), f"Pukka targeting (Seat {player.seat})")
+    record_lunatic_choice(gs, player, target.seat, f"to 'kill' {target.label()}")
     
     # The Lunatic thinks they killed someone, but nothing actually happens
     msg = f"You choose to kill {target.name} (Seat {target.seat})."
@@ -6677,25 +7112,14 @@ def run_lunatic_shabaloth_ability(gs: GameState, player: Player):
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Shabaloth but has no valid targets.")
         return
     
-    # For now, random selection (Shabaloth would normally choose 2, but Lunatic just chooses 1)
-    target = random.choice(targets)
-    
-    # Store the Lunatic's "kill" choice
-    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
-    
-    # Inform the real Demon about the Lunatic's choice
-    demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
-    if demon:
-        demon.memory["lunatic_choice"] = {"target": target.seat, "night": gs.day}
-        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose to 'kill' {target.label()}.")
-    
-    # The Lunatic thinks they killed someone, but nothing actually happens
-    msg = f"You choose to kill {target.name} (Seat {target.seat})."
+    selected_targets = get_lunatic_multi_target_choice(gs, player, targets, 2, get_shabaloth_target_prompt_text(), f"Shabaloth targeting (Seat {player.seat})")
+    record_lunatic_choice(gs, player, [t.seat for t in selected_targets], f"to 'kill' {', '.join(t.label() for t in selected_targets)}")
+    msg = f"You choose to kill {selected_targets[0].name} (Seat {selected_targets[0].seat}) and {selected_targets[1].name} (Seat {selected_targets[1].seat})."
     if is_human_player(player):
         print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
     gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
     
-    gs.log_action_end("lunatic_shabaloth_ability", f"Chose to 'kill' {target.label()}", player)
+    gs.log_action_end("lunatic_shabaloth_ability", f"Chose to 'kill' {', '.join(t.label() for t in selected_targets)}", player)
 
 def run_lunatic_po_ability(gs: GameState, player: Player):
     """Lunatic thinks they're the Po - mirror Po ability."""
@@ -6712,25 +7136,28 @@ def run_lunatic_po_ability(gs: GameState, player: Player):
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Po but has no valid targets.")
         return
     
-    # For now, random selection
-    target = random.choice(targets)
-    
-    # Store the Lunatic's "kill" choice
-    player.memory["kill_choice"] = {"target": target.seat, "night": gs.day}
-    
-    # Inform the real Demon about the Lunatic's choice
-    demon = next((p for p in gs.players if p.role.alignment == Alignment.DEMON), None)
-    if demon:
-        demon.memory["lunatic_choice"] = {"target": target.seat, "night": gs.day}
-        gs.log_secret(f"Demon {demon.label()} learns Lunatic {player.label()} chose to 'kill' {target.label()}.")
-    
-    # The Lunatic thinks they killed someone, but nothing actually happens
-    msg = f"You choose to kill {target.name} (Seat {target.seat})."
+    last_choice = gs.memory.get("lunatic_po_last_choice")
+    must_choose_three = (last_choice == "no-one" and gs.day != 2)
+    selected_targets, lunatic_choice_state = get_lunatic_po_choice(gs, player, targets, must_choose_three)
+    gs.memory["lunatic_po_last_choice"] = lunatic_choice_state
+    record_lunatic_choice(
+        gs,
+        player,
+        [t.seat for t in selected_targets] if selected_targets else "no-one",
+        "to 'kill' no-one" if not selected_targets else f"to 'kill' {', '.join(t.label() for t in selected_targets)}",
+    )
+    if selected_targets:
+        if len(selected_targets) == 1:
+            msg = f"You choose to kill {selected_targets[0].name} (Seat {selected_targets[0].seat})."
+        else:
+            msg = f"You choose to kill {', '.join(f'{t.name} (Seat {t.seat})' for t in selected_targets)}."
+    else:
+        msg = "You choose to kill no-one."
     if is_human_player(player):
         print_colored(f"[PRIVATE] {player.name} (Seat {player.seat}) is told: {msg}", 'PRIVATE')
     gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
     
-    gs.log_action_end("lunatic_po_ability", f"Chose to 'kill' {target.label()}", player)
+    gs.log_action_end("lunatic_po_ability", f"Chose to 'kill' {', '.join(t.label() for t in selected_targets)}" if selected_targets else "Chose to 'kill' no-one", player)
 
 # ... existing code ...
 
@@ -6799,7 +7226,8 @@ if __name__ == "__main__":
         human_seat = random.randint(0, player_count-1)
         print(f"Randomly assigned to seat {human_seat}")
 
-        gs = setup_game(names, character_set, print_statistics)
+        forced_role_name = FORCED_HUMAN_ROLE or None
+        gs = setup_game(names, character_set, print_statistics, forced_role_name=forced_role_name, forced_role_seat=human_seat)
         
         # Initialize PER_SEAT_IS_HUMAN after gs is created (0-indexed)
         PER_SEAT_IS_HUMAN = [False] * len(gs.players)
@@ -6829,23 +7257,29 @@ if __name__ == "__main__":
         print_colored("Note: The actual distribution may differ due to Baron, Capo Crimini, or other character effects.", 'PROMPT')
         
         # If the human is a demon, tell them their bluffs and minions
-        if human_player.role.alignment is Alignment.DEMON:
+        if human_player.alignment is Alignment.DEMON:
             if "bluffs" in human_player.memory:
                 bluffs = human_player.memory["bluffs"]
                 print_colored(f"[PRIVATE] As the {human_player.role.name}, your three bluff roles are: {', '.join(bluffs)}", 'PRIVATE')
                 gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their bluffs: {', '.join(bluffs)}")
             # Tell the demon who the minions are
-            minions = [p for p in gs.players if p.role.alignment is Alignment.MINION]
+            minions = [p for p in gs.players if p.alignment is Alignment.MINION]
             if minions:
                 minion_str = ', '.join(f"{p.name} (Seat {p.seat})" for p in minions)
                 print_colored(f"[PRIVATE] As the {human_player.role.name}, your minions are: {minion_str}", 'PRIVATE')
                 gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their minions: {minion_str}")
+            lunatic = next((p for p in gs.players if p.role.name == "Lunatic"), None)
+            if lunatic:
+                print_colored(f"[PRIVATE] There is a Lunatic in play: {lunatic.name} (Seat {lunatic.seat})", 'PRIVATE')
+                gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told there is a Lunatic in play: {lunatic.name} (Seat {lunatic.seat})")
         # If the human is a minion, tell them who the Demon is
-        if human_player.role.alignment is Alignment.MINION:
-            demon = next((p for p in gs.players if p.role.alignment is Alignment.DEMON), None)
+        if human_player.alignment is Alignment.MINION:
+            demon = next((p for p in gs.players if p.alignment is Alignment.DEMON), None)
             if demon:
-                print_colored(f"[PRIVATE] As a minion, the Demon is {demon.name} (Seat {demon.seat})", 'PRIVATE')
-                gs.log_secret(f"[PRIVATE] {human_player.label()} (Minion) is told the Demon: {demon.name} (Seat {demon.seat})")
+                other_minions = [p for p in gs.players if p.alignment is Alignment.MINION and p is not human_player]
+                other_minion_str = ', '.join(f"{p.name} (Seat {p.seat})" for p in other_minions) or "None"
+                print_colored(f"[PRIVATE] As a minion, the Demon is {demon.name} (Seat {demon.seat}). Other minions: {other_minion_str}.", 'PRIVATE')
+                gs.log_secret(f"[PRIVATE] {human_player.label()} (Minion) is told the Demon: {demon.name} (Seat {demon.seat}). Other minions: {other_minion_str}.")
         
         print_colored(f"LLM MODE: USE_LLM={USE_LLM}, TEST_MODE={TEST_MODE}, PER_SEAT_USE_LLM={PER_SEAT_USE_LLM}, PER_SEAT_IS_HUMAN={PER_SEAT_IS_HUMAN}, FAST_LLM_VOTING={FAST_LLM_VOTING}", 'STORYTELLER')
         
@@ -6913,7 +7347,8 @@ if __name__ == "__main__":
         stats_input = input("Enable prompt/usage statistics printing? (y/n): ").strip().lower()
         print_statistics = stats_input.startswith("y")
 
-        gs = setup_game(names, character_set, print_statistics)
+        forced_role_name = FORCED_HUMAN_ROLE or None
+        gs = setup_game(names, character_set, print_statistics, forced_role_name=forced_role_name, forced_role_seat=human_seat if human_seat is not None else None)
         
         # Initialize PER_SEAT_IS_HUMAN after gs is created (0-indexed)
         if human_seat is not None:
@@ -6959,137 +7394,154 @@ if __name__ == "__main__":
     def run_game_with_storyteller(gs: GameState):
         print_colored("\n=== GAME STARTED ===", 'STORYTELLER')
         gs.log_phase_start("game_start")
+
+        def show_human_role_info():
+            if not any(PER_SEAT_IS_HUMAN):
+                return
+            human_seat = next(i for i, is_human in enumerate(PER_SEAT_IS_HUMAN) if is_human)
+            human_player = gs.players[human_seat]
+            effective_role, effective_ability, _ = get_effective_role(human_player)
+            print_colored(f"You are {human_player.name} (Seat {human_seat}), the {effective_role}. Ability: {effective_ability}", 'PROMPT')
+
+            # Show role distribution information to human player
+            base_town, base_outsider, base_minion, base_demon = get_base_role_distribution(len(gs.players))
+            print_colored(f"Base role distribution for {len(gs.players)} players (excluding any Baron/Capo Crimini modifications):", 'PROMPT')
+            print_colored(f"- Townsfolk: {base_town}", 'PROMPT')
+            print_colored(f"- Outsiders: {base_outsider}", 'PROMPT')
+            print_colored(f"- Minions: {base_minion}", 'PROMPT')
+            print_colored(f"- Demons: {base_demon}", 'PROMPT')
+            print_colored("Note: The actual distribution may differ due to Baron, Capo Crimini, or other character effects.", 'PROMPT')
+
+            # If the human is a demon, tell them their bluffs and minions
+            if human_player.alignment is Alignment.DEMON:
+                if "bluffs" in human_player.memory:
+                    bluffs = human_player.memory["bluffs"]
+                    print_colored(f"[PRIVATE] As the {human_player.role.name}, your three bluff roles are: {', '.join(bluffs)}", 'PRIVATE')
+                    gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their bluffs: {', '.join(bluffs)}")
+                minions = [p for p in gs.players if p.alignment is Alignment.MINION]
+                if minions:
+                    minion_str = ', '.join(f"{p.name} (Seat {p.seat})" for p in minions)
+                    print_colored(f"[PRIVATE] As the {human_player.role.name}, your minions are: {minion_str}", 'PRIVATE')
+                    gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their minions: {minion_str}")
+                lunatic = next((p for p in gs.players if p.role.name == "Lunatic"), None)
+                if lunatic:
+                    print_colored(f"[PRIVATE] There is a Lunatic in play: {lunatic.name} (Seat {lunatic.seat})", 'PRIVATE')
+                    gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told there is a Lunatic in play: {lunatic.name} (Seat {lunatic.seat})")
+            if human_player.alignment is Alignment.MINION:
+                demon = next((p for p in gs.players if p.alignment is Alignment.DEMON), None)
+                if demon:
+                    other_minions = [p for p in gs.players if p.alignment is Alignment.MINION and p is not human_player]
+                    other_minion_str = ', '.join(f"{p.name} (Seat {p.seat})" for p in other_minions) or "None"
+                    print_colored(f"[PRIVATE] As a minion, the Demon is {demon.name} (Seat {demon.seat}). Other minions: {other_minion_str}.", 'PRIVATE')
+                    gs.log_secret(f"[PRIVATE] {human_player.label()} (Minion) is told the Demon: {demon.name} (Seat {demon.seat}). Other minions: {other_minion_str}.")
         
         # Only print 'You are now the Storyteller.' if no human seat is set
         if not any(PER_SEAT_IS_HUMAN):
             print_colored("You are now the Storyteller.", 'STORYTELLER')
         gs.phase = Phase.FIRST_NIGHT  # Ensure phase is initialized
+        show_human_role_info()
         
-        while gs.phase != Phase.END:
-            if gs.phase == Phase.FIRST_NIGHT:
-                print_colored("\n--- FIRST NIGHT ---", 'STORYTELLER')
-                gs.log_phase_start("first_night")
-                run_first_night(gs)
-                
-                # Now that first night is complete, display human player's role and ability
-                if any(PER_SEAT_IS_HUMAN):
-                    human_seat = next(i for i, is_human in enumerate(PER_SEAT_IS_HUMAN) if is_human)
-                    human_player = gs.players[human_seat]
-                    effective_role, effective_ability, _ = get_effective_role(human_player)
-                    print_colored(f"You are {human_player.name} (Seat {human_seat}), the {effective_role}. Ability: {effective_ability}", 'PROMPT')
+        try:
+            while gs.phase != Phase.END:
+                if gs.phase == Phase.FIRST_NIGHT:
+                    print_colored("\n--- FIRST NIGHT ---", 'STORYTELLER')
+                    gs.log_phase_start("first_night")
+                    run_first_night(gs)
                     
-                    # Show role distribution information to human player
-                    base_town, base_outsider, base_minion, base_demon = get_base_role_distribution(len(gs.players))
-                    print_colored(f"Base role distribution for {len(gs.players)} players (excluding any Baron/Capo Crimini modifications):", 'PROMPT')
-                    print_colored(f"- Townsfolk: {base_town}", 'PROMPT')
-                    print_colored(f"- Outsiders: {base_outsider}", 'PROMPT')
-                    print_colored(f"- Minions: {base_minion}", 'PROMPT')
-                    print_colored(f"- Demons: {base_demon}", 'PROMPT')
-                    print_colored("Note: The actual distribution may differ due to Baron, Capo Crimini, or other character effects.", 'PROMPT')
-                    
-                    # If the human is a demon, tell them their bluffs and minions
-                    if human_player.role.alignment is Alignment.DEMON:
-                        if "bluffs" in human_player.memory:
-                            bluffs = human_player.memory["bluffs"]
-                            print_colored(f"[PRIVATE] As the {human_player.role.name}, your three bluff roles are: {', '.join(bluffs)}", 'PRIVATE')
-                            gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their bluffs: {', '.join(bluffs)}")
-                        # Tell the demon who the minions are
-                        minions = [p for p in gs.players if p.role.alignment is Alignment.MINION]
-                        if minions:
-                            minion_str = ', '.join(f"{p.name} (Seat {p.seat})" for p in minions)
-                            print_colored(f"[PRIVATE] As the {human_player.role.name}, your minions are: {minion_str}", 'PRIVATE')
-                            gs.log_secret(f"[PRIVATE] {human_player.label()} ({human_player.role.name}) is told their minions: {minion_str}")
-                    # If the human is a minion, tell them who the Demon is
-                    if human_player.role.alignment is Alignment.MINION:
-                        demon = next((p for p in gs.players if p.role.alignment is Alignment.DEMON), None)
-                        if demon:
-                            print_colored(f"[PRIVATE] As a minion, the Demon is {demon.name} (Seat {demon.seat})", 'PRIVATE')
-                            gs.log_secret(f"[PRIVATE] {human_player.label()} (Minion) is told the Demon: {demon.name} (Seat {demon.seat})")
-                
-                gs.log_phase_end("first_night")
-                gs.phase = Phase.DAY_DISCUSSION
-            elif gs.phase == Phase.NIGHT:
-                # Check win condition before starting night
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    continue
-                print_colored(f"\n--- NIGHT {gs.day} ---", 'STORYTELLER')
-                gs.log_phase_start(f"night_{gs.day}")
-                run_night(gs)
-                gs.log_phase_end(f"night_{gs.day}")
-                gs.phase = Phase.DAY_DISCUSSION
-                gs.set_phase_tick(f"Day {gs.day}")  # LLM: Set phase tick for logging
-            elif gs.phase == Phase.DAY_DISCUSSION:
-                # Check win condition before starting day discussion
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    continue
-                print_colored(f"\n--- DAY {gs.day} DISCUSSION ---", 'PUBLIC')
-                gs.log_phase_start(f"day_{gs.day}_discussion")
-                try:
-                    run_day_discussion(gs)
-                except GameEndException:
-                    # Game was terminated early, immediately end the game by killing evil players
-                    gs.log_secret("Game terminated early by player - killing all evil players to end game")
-                    for player in gs.players:
-                        if player.role.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
-                            player.alive = False
-                            player.death_count += 1
-                            player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
-                            gs.log_secret(f"Killed {player.label()} to end game early")
-                    gs.phase = Phase.END
-                    break
-                gs.log_phase_end(f"day_{gs.day}_discussion")
-                gs.phase = Phase.NOMINATIONS
-                gs.set_phase_tick(f"Nominations {gs.day}")  # LLM: Set phase tick for logging
-            elif gs.phase == Phase.NOMINATIONS:
-                # Check win condition before starting nominations
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    continue
-                print_colored(f"\n--- DAY {gs.day} NOMINATIONS ---", 'PUBLIC')
-                gs.log_phase_start(f"day_{gs.day}_nominations")
-                try:
-                    run_nominations(gs)
-                except GameEndException:
-                    # Game was terminated early, immediately end the game by killing evil players
-                    gs.log_secret("Game terminated early by player - killing all evil players to end game")
-                    for player in gs.players:
-                        if player.role.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
-                            player.alive = False
-                            player.death_count += 1
-                            player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
-                            gs.log_secret(f"Killed {player.label()} to end game early")
-                    gs.phase = Phase.END
-                    break
-                gs.log_phase_end(f"day_{gs.day}_nominations")
-                gs.phase = Phase.VOTING
-                gs.set_phase_tick(f"Voting {gs.day}")  # LLM: Set phase tick for logging
-            elif gs.phase == Phase.VOTING:
-                # Check win condition before starting voting
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    continue
-                print_colored(f"\n--- DAY {gs.day} VOTING ---", 'PUBLIC')
-                gs.log_phase_start(f"day_{gs.day}_voting")
-                run_voting(gs)
-                gs.log_phase_end(f"day_{gs.day}_voting")
-                gs.phase = Phase.EXECUTION
-                gs.set_phase_tick(f"Execution {gs.day}")  # LLM: Set phase tick for logging
-            elif gs.phase == Phase.EXECUTION:
-                # Check win condition before starting execution
-                if check_win_condition(gs):
-                    gs.phase = Phase.END
-                    continue
-                print_colored(f"\n--- DAY {gs.day} EXECUTION ---", 'PUBLIC')
-                gs.log_phase_start(f"day_{gs.day}_execution")
-                run_execution(gs)
-                gs.log_phase_end(f"day_{gs.day}_execution")
-                # Check win condition after execution, but don't override if phase is already END
-                if gs.phase != Phase.END and check_win_condition(gs):
-                    gs.phase = Phase.END
-                elif gs.phase != Phase.END:
-                    gs.phase = Phase.NIGHT
+                    gs.log_phase_end("first_night")
+                    gs.phase = Phase.DAY_DISCUSSION
+                elif gs.phase == Phase.NIGHT:
+                    # Check win condition before starting night
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        continue
+                    print_colored(f"\n--- NIGHT {gs.day} ---", 'STORYTELLER')
+                    gs.log_phase_start(f"night_{gs.day}")
+                    run_night(gs)
+                    gs.log_phase_end(f"night_{gs.day}")
+                    gs.phase = Phase.DAY_DISCUSSION
+                    gs.set_phase_tick(f"Day {gs.day}")  # LLM: Set phase tick for logging
+                elif gs.phase == Phase.DAY_DISCUSSION:
+                    # Check win condition before starting day discussion
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        continue
+                    print_colored(f"\n--- DAY {gs.day} DISCUSSION ---", 'PUBLIC')
+                    gs.log_phase_start(f"day_{gs.day}_discussion")
+                    try:
+                        run_day_discussion(gs)
+                    except GameEndException:
+                        # Game was terminated early, immediately end the game by killing evil players
+                        gs.log_secret("Game terminated early by player - killing all evil players to end game")
+                        for player in gs.players:
+                            if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                                player.alive = False
+                                player.death_count += 1
+                                player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
+                                gs.log_secret(f"Killed {player.label()} to end game early")
+                        gs.phase = Phase.END
+                        break
+                    gs.log_phase_end(f"day_{gs.day}_discussion")
+                    gs.phase = Phase.NOMINATIONS
+                    gs.set_phase_tick(f"Nominations {gs.day}")  # LLM: Set phase tick for logging
+                elif gs.phase == Phase.NOMINATIONS:
+                    # Check win condition before starting nominations
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        continue
+                    print_colored(f"\n--- DAY {gs.day} NOMINATIONS ---", 'PUBLIC')
+                    gs.log_phase_start(f"day_{gs.day}_nominations")
+                    try:
+                        run_nominations(gs)
+                    except GameEndException:
+                        # Game was terminated early, immediately end the game by killing evil players
+                        gs.log_secret("Game terminated early by player - killing all evil players to end game")
+                        for player in gs.players:
+                            if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                                player.alive = False
+                                player.death_count += 1
+                                player.hidden_state["died_night"] = "game_end"  # Track that they died due to game termination
+                                gs.log_secret(f"Killed {player.label()} to end game early")
+                        gs.phase = Phase.END
+                        break
+                    gs.log_phase_end(f"day_{gs.day}_nominations")
+                    gs.phase = Phase.VOTING
+                    gs.set_phase_tick(f"Voting {gs.day}")  # LLM: Set phase tick for logging
+                elif gs.phase == Phase.VOTING:
+                    # Check win condition before starting voting
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        continue
+                    print_colored(f"\n--- DAY {gs.day} VOTING ---", 'PUBLIC')
+                    gs.log_phase_start(f"day_{gs.day}_voting")
+                    run_voting(gs)
+                    gs.log_phase_end(f"day_{gs.day}_voting")
+                    gs.phase = Phase.EXECUTION
+                    gs.set_phase_tick(f"Execution {gs.day}")  # LLM: Set phase tick for logging
+                elif gs.phase == Phase.EXECUTION:
+                    # Check win condition before starting execution
+                    if check_win_condition(gs):
+                        gs.phase = Phase.END
+                        continue
+                    print_colored(f"\n--- DAY {gs.day} EXECUTION ---", 'PUBLIC')
+                    gs.log_phase_start(f"day_{gs.day}_execution")
+                    run_execution(gs)
+                    gs.log_phase_end(f"day_{gs.day}_execution")
+                    # Check win condition after execution, but don't override if phase is already END
+                    if gs.phase != Phase.END and check_win_condition(gs):
+                        gs.phase = Phase.END
+                    elif gs.phase != Phase.END:
+                        gs.phase = Phase.NIGHT
+        except ExternalStopRequested:
+            gs.log_public("The Storyteller ends the game early.")
+            gs.log_secret("External stop request received during input - ending game early and preserving logs.")
+            for player in gs.players:
+                if player.alignment in {Alignment.MINION, Alignment.DEMON} and player.alive:
+                    player.alive = False
+                    player.death_count += 1
+                    player.hidden_state["died_night"] = "game_end"
+                    gs.log_secret(f"Killed {player.label()} to end game early from UI input request")
+            gs.phase = Phase.END
         
         gs.log_phase_start("game_end")
         print_colored("\n=== GAME OVER ===", 'STORYTELLER')
@@ -7108,4 +7560,9 @@ if __name__ == "__main__":
         save_logs_to_xml(gs)
         gs.log_phase_end("game_end")
 
-    run_game_with_storyteller(gs) 
+    try:
+        run_game_with_storyteller(gs)
+    except LLMServiceError as e:
+        print_colored("Fatal LLM error. Game stopped.", 'ERROR')
+        print_colored(str(e), 'ERROR')
+
