@@ -4,27 +4,30 @@ Browser-playable Blood on the Clocktower v1.5 simulation with LLM players, plus 
 
 ## Quickstart ("Just tell me how to play this")
 
-1. Download this repository to your computer.
-2. Open PowerShell in the folder containing these files.
-3. Install the required packages:
+1. On the GitHub page for this project, click the green `Code` button, then click `Download ZIP`.
+2. Find the ZIP file on your computer and unzip it somewhere easy to find, such as your Desktop.
+3. Open the unzipped folder.
+4. Click the folder path/address bar at the top of the File Explorer window, type `powershell`, and press Enter.
+5. A PowerShell window should open already pointed at this folder.
+6. Install the required packages:
 
 ```powershell
 py -m pip install -r requirements.txt
 ```
 
-4. Add your OpenAI API key:
+7. Add your OpenAI API key:
 
 ```powershell
 $env:OPENAI_API_KEY="your-key-here"
 ```
 
-5. Start the game in your browser:
+8. Start the game in your browser:
 
 ```powershell
 py -m streamlit run app.py
 ```
 
-6. Your browser should open automatically. If it does not, open the local address shown in PowerShell.
+9. Your browser should open automatically. If it does not, look in the PowerShell window for a local web address such as `http://localhost:8501` and open that in your browser.
 
 If `py` does not work on your machine, replace it with `python`.
 
