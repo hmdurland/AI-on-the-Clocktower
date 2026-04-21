@@ -9,14 +9,17 @@ import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from intel_tests.runner import run_batch as intel_run_batch, save_result as intel_save_result
 
 APP_DIR = Path(__file__).resolve().parent
 ENGINE_PATH = APP_DIR / "engine.py"
 INTEL_SCENARIOS_DIR = APP_DIR / "intel_tests" / "scenarios"
+SETUP_PRESETS_PATH = APP_DIR / "setup_presets.json"
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 TAGGED_LINE_RE = re.compile(r"^\[([A-Z_]+)\]\s?(.*)$")
@@ -104,6 +107,8 @@ def init_state():
         "pending_traceback": [],
         "end_and_save_requested_at": None,
         "partial_log_saved_path": None,
+        "engine_log_path": None,
+        "preset_save_status": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -341,6 +346,164 @@ def get_model_config(
         "reasoning_effort": reasoning_effort or "low",
         "max_output_tokens": max_output_tokens or "max(max_tokens, 2048)",
     }
+
+
+OPENAI_MODEL_OPTIONS = ["gpt-5-mini", "gpt-5.4-mini", "gpt-5.4-nano", "Custom"]
+BUILTIN_SETUP_PRESETS = {
+    "8 with empath-demon neighbors": {
+        "character_set": 1,
+        "player_count": 8,
+        "seats": [
+            {"seat": 0, "name": "Golf", "role": "Imp"},
+            {"seat": 1, "name": "Hotel", "role": "Empath"},
+            {"seat": 2, "name": "Charlie", "role": "Monk"},
+            {"seat": 3, "name": "Foxtrot", "role": "Librarian"},
+            {"seat": 4, "name": "Alpha", "role": "Poisoner"},
+            {"seat": 5, "name": "Delta", "role": "Chef"},
+            {"seat": 6, "name": "Bravo", "role": "Recluse"},
+            {"seat": 7, "name": "Echo", "role": "Mayor"},
+        ],
+        "setup_state": {
+            "demon_bluffs": {
+                "0": ["Ravenkeeper", "Washerwoman", "Investigator"]
+            },
+            "initial_info": {
+                "Librarian": {
+                    "3": {"pair": [6, 5], "reveal": "Recluse"}
+                }
+            }
+        },
+    }
+}
+
+
+def load_custom_setup_presets() -> dict:
+    if not SETUP_PRESETS_PATH.exists():
+        return {}
+    try:
+        return json.loads(SETUP_PRESETS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_custom_setup_presets(presets: dict):
+    SETUP_PRESETS_PATH.write_text(json.dumps(presets, indent=2), encoding="utf-8")
+
+
+def get_all_setup_presets() -> dict:
+    presets = dict(BUILTIN_SETUP_PRESETS)
+    presets.update(load_custom_setup_presets())
+    return presets
+
+
+def get_setup_preset_names() -> list[str]:
+    return ["Off"] + list(get_all_setup_presets().keys())
+
+
+def parse_setup_from_game_log(log_path: Path, character_set_name: str | None) -> dict:
+    root = ET.parse(log_path).getroot()
+    players_el = root.find("metadata").find("players")
+    seats = []
+    demon_seats = []
+    for p in players_el:
+        role = p.attrib["role"]
+        seats.append(
+            {
+                "seat": int(p.attrib["seat"]),
+                "name": p.attrib["name"],
+                "role": role,
+            }
+        )
+        if p.attrib.get("alignment") == "demon":
+            demon_seats.append(int(p.attrib["seat"]))
+    character_set_map = {"Trouble Brewing": 1, "Bad Moon Rising": 2, "Both (Mixed)": 3}
+    storyteller_entries = [
+        (entry.text or "").strip()
+        for entry in root.find("legacy_logs").find("storyteller_log")
+    ]
+    setup_state: dict[str, dict] = {"demon_bluffs": {}, "initial_info": {}, "drunk_roles": {}}
+
+    for txt in storyteller_entries:
+        m = re.search(r"Drunk: .+ \(Seat (\d+)\) thinks they are ([A-Za-z' -]+)", txt)
+        if m:
+            setup_state["drunk_roles"][m.group(1)] = m.group(2).strip()
+            continue
+        m = re.search(r"Fortune Teller red herring: .+ \(Seat (\d+)\)", txt)
+        if m:
+            setup_state["ft_red_herring_seat"] = int(m.group(1))
+            continue
+        m = re.search(r"sees ([A-Za-z' -]+) among seats \((\d+), (\d+)\)", txt)
+        if m and "Washerwoman" in txt:
+            seat_m = re.search(r"Washerwoman .+\(Seat (\d+)\)", txt)
+            if seat_m:
+                setup_state["initial_info"].setdefault("Washerwoman", {})[seat_m.group(1)] = {
+                    "pair": [int(m.group(2)), int(m.group(3))],
+                    "reveal": m.group(1).strip(),
+                }
+            continue
+        if m and "Librarian" in txt:
+            seat_m = re.search(r"Librarian .+\(Seat (\d+)\)", txt)
+            if seat_m:
+                setup_state["initial_info"].setdefault("Librarian", {})[seat_m.group(1)] = {
+                    "pair": [int(m.group(2)), int(m.group(3))],
+                    "reveal": m.group(1).strip(),
+                }
+            continue
+        if m and "Investigator" in txt:
+            seat_m = re.search(r"Investigator .+\(Seat (\d+)\)", txt)
+            if seat_m:
+                setup_state["initial_info"].setdefault("Investigator", {})[seat_m.group(1)] = {
+                    "pair": [int(m.group(2)), int(m.group(3))],
+                    "reveal": m.group(1).strip(),
+                }
+            continue
+        m = re.search(r"Grandparent .+\(Seat (\d+)\) knows .+ in seat (\d+) is ([A-Za-z' -]+)", txt)
+        if m:
+            setup_state["initial_info"].setdefault("Grandparent", {})[m.group(1)] = {
+                "target": int(m.group(2)),
+                "reveal": m.group(3).strip(),
+            }
+            continue
+        m = re.search(r"bluffs: \[(.+)\]", txt)
+        if m and demon_seats:
+            raw = m.group(1).strip()
+            try:
+                parsed = json.loads("[" + raw.replace("'", '"') + "]")
+                setup_state["demon_bluffs"][str(demon_seats[0])] = parsed
+            except Exception:
+                pass
+
+    if not setup_state["demon_bluffs"]:
+        setup_state.pop("demon_bluffs")
+    if not setup_state["initial_info"]:
+        setup_state.pop("initial_info")
+    if not setup_state["drunk_roles"]:
+        setup_state.pop("drunk_roles")
+    return {
+        "character_set": character_set_map.get(character_set_name or "", 1),
+        "player_count": len(seats),
+        "seats": sorted(seats, key=lambda s: s["seat"]),
+        "setup_state": setup_state,
+    }
+
+
+def save_setup_preset_from_current_game(preset_name: str) -> tuple[bool, str]:
+    preset_name = (preset_name or "").strip()
+    if not preset_name:
+        return False, "Enter a preset name."
+    log_path_value = st.session_state.get("engine_log_path")
+    if not log_path_value:
+        return False, "No current game log path is available."
+    log_path = Path(log_path_value)
+    if not log_path.exists():
+        return False, "Current game log file was not found yet."
+    run_config = st.session_state.get("run_config") or {}
+    character_set_name = run_config.get("character_set")
+    preset_data = parse_setup_from_game_log(log_path, character_set_name)
+    presets = load_custom_setup_presets()
+    presets[preset_name] = preset_data
+    save_custom_setup_presets(presets)
+    return True, f"Saved preset `{preset_name}`."
 
 
 def parse_board_state(messages: list[dict]) -> dict:
@@ -659,9 +822,8 @@ def render_message(entry: dict, color_map: dict[str, str], colorize_players: boo
 def render_transcript(messages: list[dict], board_state: dict, colorize_players: bool) -> str:
     if not messages:
         return "<div class='botc-empty'>No game output yet.</div>"
-    recent = messages[-240:]
     color_map = get_player_color_map(board_state)
-    return "".join(render_message(entry, color_map, colorize_players) for entry in recent)
+    return "".join(render_message(entry, color_map, colorize_players) for entry in messages)
 
 
 def format_intel_response_blocks(raw_response: str) -> str:
@@ -706,6 +868,12 @@ def start_game(
     reasoning_effort: str,
     max_output_tokens: int | None,
     response_budget_prompt: str,
+    use_team_models: bool,
+    good_team_model_name: str,
+    evil_team_model_name: str,
+    good_team_reasoning_effort: str,
+    evil_team_reasoning_effort: str,
+    setup_preset_name: str,
 ):
     env = os.environ.copy()
     if openai_key:
@@ -715,6 +883,18 @@ def start_game(
     env["BOTC_BACKEND"] = backend
     if model_name:
         env["BOTC_MODEL"] = model_name
+    if setup_preset_name and setup_preset_name != "Off":
+        env["BOTC_SETUP_PRESET"] = setup_preset_name
+    if use_team_models and backend == "openai":
+        env["BOTC_USE_TEAM_MODELS"] = "1"
+        if good_team_model_name:
+            env["BOTC_GOOD_TEAM_MODEL"] = good_team_model_name
+        if evil_team_model_name:
+            env["BOTC_EVIL_TEAM_MODEL"] = evil_team_model_name
+        if good_team_reasoning_effort:
+            env["BOTC_GOOD_TEAM_REASONING_EFFORT"] = good_team_reasoning_effort
+        if evil_team_reasoning_effort:
+            env["BOTC_EVIL_TEAM_REASONING_EFFORT"] = evil_team_reasoning_effort
     if human_role_choice and human_role_choice != "Random":
         env["BOTC_HUMAN_ROLE"] = human_role_choice
     if reasoning_effort:
@@ -725,6 +905,11 @@ def start_game(
         env["BOTC_RESPONSE_BUDGET_PROMPT"] = response_budget_prompt
     env["PYTHONUTF8"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    engine_log_path = APP_DIR / f"botc_game_log_{time.strftime('%Y%m%d_%H%M%S')}.xml"
+    head_to_head_results_path = APP_DIR / "head_to_head_results.xml"
+    env["BOTC_LOG_FILENAME"] = str(engine_log_path)
+    env["BOTC_HEAD_TO_HEAD_RESULTS"] = str(head_to_head_results_path)
+    env["BOTC_SETUP_PRESETS_FILE"] = str(SETUP_PRESETS_PATH)
 
     st.session_state.messages = []
     st.session_state.raw_lines = []
@@ -733,6 +918,8 @@ def start_game(
     st.session_state.transcript_started = False
     st.session_state.end_and_save_requested_at = None
     st.session_state.partial_log_saved_path = None
+    st.session_state.engine_log_path = str(engine_log_path)
+    st.session_state.preset_save_status = None
     st.session_state.q = queue.Queue()
     st.session_state.last_status = "Launching game"
 
@@ -750,6 +937,12 @@ def start_game(
         "colorize_players": colorize_players,
         "debug_logs": debug_logs,
         "print_stats": print_stats,
+        "team_model_split": use_team_models and backend == "openai",
+        "good_team_model": good_team_model_name if use_team_models and backend == "openai" else None,
+        "evil_team_model": evil_team_model_name if use_team_models and backend == "openai" else None,
+        "good_team_reasoning_effort": good_team_reasoning_effort if use_team_models and backend == "openai" else None,
+        "evil_team_reasoning_effort": evil_team_reasoning_effort if use_team_models and backend == "openai" else None,
+        "setup_preset": setup_preset_name if setup_preset_name and setup_preset_name != "Off" else None,
         **model_config,
     }
     st.session_state.raw_lines.append(
@@ -758,7 +951,13 @@ def start_game(
         f"human_seat={int(human_seat) if human_enabled else 'none'}; human_role={human_role_choice if human_enabled else 'off'}; full_llm={use_llm}; "
         f"test_mode={test_mode}; test_seat={int(test_seat) if test_mode else 'none'}; "
         f"fast_voting={fast_voting}; colorize_players={colorize_players}; "
-        f"debug_logs={debug_logs}; print_stats={print_stats}"
+        f"debug_logs={debug_logs}; print_stats={print_stats}; "
+        f"team_model_split={use_team_models and backend == 'openai'}; "
+        f"good_team_model={good_team_model_name if use_team_models and backend == 'openai' else 'n/a'}; "
+        f"evil_team_model={evil_team_model_name if use_team_models and backend == 'openai' else 'n/a'}; "
+        f"good_team_reasoning_effort={good_team_reasoning_effort if use_team_models and backend == 'openai' else 'n/a'}; "
+        f"evil_team_reasoning_effort={evil_team_reasoning_effort if use_team_models and backend == 'openai' else 'n/a'}; "
+        f"setup_preset={setup_preset_name if setup_preset_name and setup_preset_name != 'Off' else 'n/a'}"
     )
     st.session_state.raw_lines.append(
         "[MODEL CONFIG] "
@@ -873,7 +1072,27 @@ st.markdown(
         padding: 1rem;
         min-height: 60vh;
         max-height: 72vh;
-        overflow-y: auto;
+        overflow-y: scroll;
+        overflow-x: hidden;
+        scrollbar-gutter: stable both-edges;
+        scrollbar-width: auto;
+        scrollbar-color: rgba(92, 51, 157, 0.9) rgba(255, 252, 245, 0.94);
+        padding-right: 1.1rem;
+    }
+    .botc-transcript::-webkit-scrollbar {
+        width: 16px;
+    }
+    .botc-transcript::-webkit-scrollbar-track {
+        background: rgba(233, 225, 213, 0.92);
+        border-radius: 12px;
+    }
+    .botc-transcript::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, rgba(126, 34, 206, 0.95), rgba(91, 33, 182, 0.95));
+        border-radius: 12px;
+        border: 3px solid rgba(233, 225, 213, 0.92);
+    }
+    .botc-transcript:hover::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, rgba(147, 51, 234, 0.98), rgba(107, 33, 168, 0.98));
     }
     .botc-board,
     .botc-personal-shell {
@@ -1104,6 +1323,121 @@ st.markdown(
         font-family: Consolas, monospace;
         font-size: 0.88rem;
     }
+    .botc-expander-panel {
+        background: #f6ede2;
+        border: 1px solid #d1b8a5;
+        border-radius: 14px;
+        padding: 0.9rem;
+        margin-top: 0.35rem;
+    }
+    .botc-expander-panel-note {
+        color: #5a3128;
+        font-size: 0.92rem;
+        margin-bottom: 0.65rem;
+    }
+    .stExpander {
+        background: #f6ede2;
+        border: 1px solid #8f4a3e;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 10px 24px rgba(73, 33, 24, 0.08);
+    }
+    .stExpander details {
+        background: transparent;
+    }
+    .stExpander summary {
+        background: linear-gradient(180deg, #7a241c, #5e1d17);
+        color: #fff5ee !important;
+    }
+    .stExpander details > div[role="group"] {
+        background: #f6ede2;
+        padding: 0.45rem 0.65rem 0.75rem 0.65rem;
+        color: #3f2e29;
+    }
+    .stExpander details > div[role="group"] *,
+    .stExpander [data-testid="stExpanderDetails"] * {
+        color: #3f2e29 !important;
+    }
+    .stExpander details > div[role="group"] .stTextInput,
+    .stExpander details > div[role="group"] .stButton,
+    .stExpander details > div[role="group"] .stAlert {
+        background: transparent;
+    }
+    .stExpander details > div[role="group"] label,
+    .stExpander details > div[role="group"] p,
+    .stExpander details > div[role="group"] span,
+    .stExpander details > div[role="group"] .botc-expander-panel-note {
+        color: #3f2e29 !important;
+    }
+    .stExpander summary p,
+    .stExpander summary span,
+    .stExpander summary svg {
+        color: #fff5ee !important;
+        fill: #fff5ee !important;
+    }
+    .stExpander input[type="text"] {
+        background: #fffaf4 !important;
+        color: #2f221e !important;
+        border: 1px solid #c6ab96 !important;
+    }
+    .stExpander input[type="text"]::placeholder {
+        color: #7a625a !important;
+    }
+    .stExpander .stButton > button {
+        background: linear-gradient(180deg, #7a241c, #5e1d17) !important;
+        color: #fff5ee !important;
+        border: 1px solid #4a1712 !important;
+    }
+    .stExpander .stButton > button *,
+    .stExpander .stButton > button p,
+    .stExpander .stButton > button span {
+        color: #fff5ee !important;
+    }
+    .stExpander .stButton > button:hover {
+        background: linear-gradient(180deg, #8b2a21, #692019) !important;
+        color: #fff5ee !important;
+    }
+    [data-testid="stSidebar"] .stExpander {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: none;
+    }
+    [data-testid="stSidebar"] .stExpander summary {
+        background: rgba(255, 255, 255, 0.04);
+        color: inherit !important;
+    }
+    [data-testid="stSidebar"] .stExpander details > div[role="group"] {
+        background: transparent;
+        color: inherit;
+    }
+    [data-testid="stSidebar"] .stExpander details > div[role="group"] *,
+    [data-testid="stSidebar"] .stExpander [data-testid="stExpanderDetails"] * {
+        color: inherit !important;
+    }
+    [data-testid="stSidebar"] .stExpander summary p,
+    [data-testid="stSidebar"] .stExpander summary span,
+    [data-testid="stSidebar"] .stExpander summary svg {
+        color: inherit !important;
+        fill: currentColor !important;
+    }
+    [data-testid="stSidebar"] .stExpander input[type="text"] {
+        background: initial !important;
+        color: inherit !important;
+        border: initial !important;
+    }
+    [data-testid="stSidebar"] .stExpander input[type="text"]::placeholder {
+        color: inherit !important;
+    }
+    [data-testid="stSidebar"] .stExpander .stButton > button {
+        background: initial !important;
+        color: inherit !important;
+        border: initial !important;
+    }
+    [data-testid="stSidebar"] .stExpander .stButton > button *,
+    [data-testid="stSidebar"] .stExpander .stButton > button p,
+    [data-testid="stSidebar"] .stExpander .stButton > button span {
+        color: inherit !important;
+    }
     .botc-board-svg {
         width: 100%;
         height: auto;
@@ -1252,6 +1586,21 @@ with st.sidebar:
 
     if app_mode == "Gameplay":
         st.header("Game Setup")
+        setup_preset_options = get_setup_preset_names()
+        with st.expander("Advanced Game Setup", expanded=False):
+            selected_setup_preset = st.selectbox(
+                "Setup Preset",
+                setup_preset_options,
+                index=0,
+                help="Preset table setups fix the exact seat/role layout. They override random setup generation.",
+            )
+            if selected_setup_preset != "Off":
+                preset_data = get_all_setup_presets()[selected_setup_preset]
+                preset_character_set_names = {1: "Trouble Brewing", 2: "Bad Moon Rising", 3: "Both (Mixed)"}
+                st.caption(
+                    f"Preset overrides setup to `{preset_character_set_names.get(preset_data['character_set'], 'Unknown')}` "
+                    f"with `{preset_data['player_count']}` players."
+                )
         character_set = st.selectbox("Character Set", ["Trouble Brewing", "Bad Moon Rising", "Both (Mixed)"])
         player_count = st.slider("Player Count", min_value=5, max_value=15, value=8, step=1)
 
@@ -1295,7 +1644,7 @@ with st.sidebar:
         if backend == "openai":
             model_choice = st.selectbox(
                 "OpenAI Model",
-                ["gpt-5-mini", "gpt-5.4-mini", "gpt-5.4-nano", "Custom"],
+                OPENAI_MODEL_OPTIONS,
                 index=0,
             )
             custom_model = st.text_input(
@@ -1355,6 +1704,62 @@ with st.sidebar:
                 step=0.1,
                 disabled=not use_response_budget_prompt or response_budget_mode != "Custom x",
             )
+            use_team_models = st.checkbox(
+                "Use Different Models By Starting Team",
+                value=False,
+                disabled=backend != "openai",
+                help="Locks model selection by starting team. Townsfolk/Outsiders use the good-team model; Minions/Demon use the evil-team model. Recluse remains on the good-team model.",
+            )
+            good_team_model_choice = st.selectbox(
+                "Good Team Model",
+                OPENAI_MODEL_OPTIONS,
+                index=0,
+                disabled=backend != "openai" or not use_team_models,
+            )
+            good_team_custom_model = st.text_input(
+                "Custom Good Team Model",
+                value="",
+                disabled=backend != "openai" or not use_team_models or good_team_model_choice != "Custom",
+                placeholder="Enter any model id",
+            )
+            evil_team_model_choice = st.selectbox(
+                "Evil Team Model",
+                OPENAI_MODEL_OPTIONS,
+                index=1,
+                disabled=backend != "openai" or not use_team_models,
+            )
+            evil_team_custom_model = st.text_input(
+                "Custom Evil Team Model",
+                value="",
+                disabled=backend != "openai" or not use_team_models or evil_team_model_choice != "Custom",
+                placeholder="Enter any model id",
+            )
+            good_team_reasoning_mode = st.selectbox(
+                "Good Team Reasoning Effort",
+                ["Use Global", "Low", "Medium", "Custom"],
+                index=0,
+                disabled=backend != "openai" or not use_team_models,
+                help="Overrides the global reasoning effort for good-team players only.",
+            )
+            good_team_custom_reasoning_effort = st.text_input(
+                "Custom Good Team Reasoning Effort",
+                value="",
+                disabled=backend != "openai" or not use_team_models or good_team_reasoning_mode != "Custom",
+                placeholder="Enter any reasoning effort string",
+            )
+            evil_team_reasoning_mode = st.selectbox(
+                "Evil Team Reasoning Effort",
+                ["Use Global", "Low", "Medium", "Custom"],
+                index=0,
+                disabled=backend != "openai" or not use_team_models,
+                help="Overrides the global reasoning effort for evil-team players only.",
+            )
+            evil_team_custom_reasoning_effort = st.text_input(
+                "Custom Evil Team Reasoning Effort",
+                value="",
+                disabled=backend != "openai" or not use_team_models or evil_team_reasoning_mode != "Custom",
+                placeholder="Enter any reasoning effort string",
+            )
         openai_key = st.text_input("OpenAI API Key", type="password")
         gemini_key = st.text_input("Gemini API Key", type="password")
 
@@ -1400,6 +1805,12 @@ if app_mode == "Gameplay":
 
     effective_openai_key = openai_key or os.getenv("OPENAI_API_KEY", "")
     effective_gemini_key = gemini_key or os.getenv("GEMINI_API_KEY", "")
+    active_setup_preset = selected_setup_preset
+    if active_setup_preset != "Off":
+        preset_data = get_all_setup_presets()[active_setup_preset]
+        preset_character_set_names = {1: "Trouble Brewing", 2: "Bad Moon Rising", 3: "Both (Mixed)"}
+        character_set = preset_character_set_names.get(preset_data["character_set"], character_set)
+        player_count = int(preset_data["player_count"])
     if max_tokens_mode == "Current Default":
         selected_max_output_tokens = 2048
     elif max_tokens_mode == "Double Default":
@@ -1413,6 +1824,31 @@ if app_mode == "Gameplay":
         selected_reasoning_effort = "medium"
     else:
         selected_reasoning_effort = (custom_reasoning_effort or "low").strip()
+
+    selected_good_team_model_name = (
+        (good_team_custom_model.strip() or selected_model_name) if backend == "openai" and use_team_models and good_team_model_choice == "Custom"
+        else (good_team_model_choice if backend == "openai" and use_team_models else "")
+    )
+    selected_evil_team_model_name = (
+        (evil_team_custom_model.strip() or selected_model_name) if backend == "openai" and use_team_models and evil_team_model_choice == "Custom"
+        else (evil_team_model_choice if backend == "openai" and use_team_models else "")
+    )
+    if good_team_reasoning_mode == "Use Global":
+        selected_good_team_reasoning_effort = selected_reasoning_effort
+    elif good_team_reasoning_mode == "Low":
+        selected_good_team_reasoning_effort = "low"
+    elif good_team_reasoning_mode == "Medium":
+        selected_good_team_reasoning_effort = "medium"
+    else:
+        selected_good_team_reasoning_effort = (good_team_custom_reasoning_effort or selected_reasoning_effort).strip()
+    if evil_team_reasoning_mode == "Use Global":
+        selected_evil_team_reasoning_effort = selected_reasoning_effort
+    elif evil_team_reasoning_mode == "Low":
+        selected_evil_team_reasoning_effort = "low"
+    elif evil_team_reasoning_mode == "Medium":
+        selected_evil_team_reasoning_effort = "medium"
+    else:
+        selected_evil_team_reasoning_effort = (evil_team_custom_reasoning_effort or selected_reasoning_effort).strip()
 
     response_budget_prompt = ""
     response_budget_words = None
@@ -1460,6 +1896,7 @@ if app_mode == "Gameplay":
                 [
                     f"`Character Set`: {character_set}",
                     f"`Player Count`: {player_count}",
+                    f"`Setup Preset`: {active_setup_preset if active_setup_preset != 'Off' else 'off'}",
                     f"`Human Seat`: {int(human_seat) if human_enabled else 'off'}",
                     f"`Human Role`: {human_role_choice if human_enabled else 'off'}",
                     f"`Full LLM Mode`: {use_llm}",
@@ -1469,6 +1906,11 @@ if app_mode == "Gameplay":
                     f"`Backend`: {selected_model_config['backend']}",
                     f"`API Style`: {selected_model_config['api_style']}",
                     f"`Model`: {selected_model_config['model']}",
+                    f"`Team Split Models`: {use_team_models if backend == 'openai' else False}",
+                    f"`Good Team Model`: {selected_good_team_model_name if backend == 'openai' and use_team_models else 'n/a'}",
+                    f"`Evil Team Model`: {selected_evil_team_model_name if backend == 'openai' and use_team_models else 'n/a'}",
+                    f"`Good Team Reasoning`: {selected_good_team_reasoning_effort if backend == 'openai' and use_team_models else 'n/a'}",
+                    f"`Evil Team Reasoning`: {selected_evil_team_reasoning_effort if backend == 'openai' and use_team_models else 'n/a'}",
                     f"`Reasoning Effort`: {selected_model_config['reasoning_effort']}",
                     f"`Temperature`: {selected_model_config['temperature']}",
                     f"`Max Output Tokens`: {selected_model_config['max_output_tokens']}",
@@ -1506,6 +1948,12 @@ if app_mode == "Gameplay":
             selected_reasoning_effort if backend == "openai" else "",
             selected_max_output_tokens if backend == "openai" else None,
             response_budget_prompt,
+            use_team_models if backend == "openai" else False,
+            selected_good_team_model_name,
+            selected_evil_team_model_name,
+            selected_good_team_reasoning_effort if backend == "openai" and use_team_models else "",
+            selected_evil_team_reasoning_effort if backend == "openai" and use_team_models else "",
+            active_setup_preset,
         )
 
     if stop_and_save_clicked and st.session_state.proc:
@@ -1535,14 +1983,22 @@ if app_mode == "Gameplay":
         and st.session_state.end_and_save_requested_at is not None
         and time.time() - st.session_state.end_and_save_requested_at > 2.0
     ):
-        save_path = save_partial_game_log_from_ui()
+        engine_log_path = st.session_state.get("engine_log_path")
+        save_path = None
+        if engine_log_path and Path(engine_log_path).exists():
+            save_path = Path(engine_log_path)
+        else:
+            save_path = save_partial_game_log_from_ui()
         try:
             st.session_state.proc.terminate()
         except Exception:
             pass
         st.session_state.running = False
         st.session_state.end_and_save_requested_at = None
-        st.session_state.last_status = f"Force-stopped; partial log saved to {save_path.name}"
+        if engine_log_path and Path(engine_log_path).exists():
+            st.session_state.last_status = f"Force-stopped; latest engine log saved to {save_path.name}"
+        else:
+            st.session_state.last_status = f"Force-stopped; partial log saved to {save_path.name}"
 
     board_state = parse_board_state(st.session_state.messages)
     personal_state = parse_personal_panel(st.session_state.messages)
@@ -1577,8 +2033,30 @@ if app_mode == "Gameplay":
         st.markdown(f"<div class='botc-board'>{board_phase_html}{board_body_html}</div>", unsafe_allow_html=True)
         st.markdown("### Transcript")
         st.markdown(
-            f"<div class='botc-transcript'>{render_transcript(st.session_state.messages, board_state, colorize_players)}</div>",
+            f"<div id='botc-transcript-box' class='botc-transcript'>{render_transcript(st.session_state.messages, board_state, colorize_players)}</div>",
             unsafe_allow_html=True,
+        )
+        components.html(
+            """
+            <script>
+            const KEY = "botc_transcript_scroll_top";
+            const doc = window.parent.document;
+            const box = doc.getElementById("botc-transcript-box");
+            if (box) {
+              const saved = window.sessionStorage.getItem(KEY);
+              if (saved !== null) {
+                box.scrollTop = parseInt(saved, 10) || 0;
+              }
+              if (!box.dataset.scrollBound) {
+                box.addEventListener("scroll", () => {
+                  window.sessionStorage.setItem(KEY, String(box.scrollTop));
+                });
+                box.dataset.scrollBound = "1";
+              }
+            }
+            </script>
+            """,
+            height=0,
         )
 
     with right_col:
@@ -1623,6 +2101,34 @@ if app_mode == "Gameplay":
                 "<div class='botc-promptbox'><div class='botc-action-note'>Start a game from the sidebar to begin.</div></div>",
                 unsafe_allow_html=True,
             )
+
+        with st.expander("Save Setup Preset", expanded=False):
+            st.markdown(
+                "<div class='botc-expander-panel'><div class='botc-expander-panel-note'>Save the current seat/role setup and setup-specific hidden state as a reusable preset.</div>",
+                unsafe_allow_html=True,
+            )
+            preset_name_input = st.text_input(
+                "Preset Name",
+                value="",
+                key="save_setup_preset_name",
+                placeholder="Enter a name for the current table setup",
+            )
+            save_preset_clicked = st.button(
+                "Save Current Setup As Preset",
+                use_container_width=True,
+                disabled=not st.session_state.get("engine_log_path"),
+            )
+            if save_preset_clicked:
+                ok, message = save_setup_preset_from_current_game(preset_name_input)
+                st.session_state.preset_save_status = ("success" if ok else "error", message)
+            preset_save_status = st.session_state.get("preset_save_status")
+            if preset_save_status:
+                kind, message = preset_save_status
+                if kind == "success":
+                    st.success(message)
+                else:
+                    st.error(message)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with st.expander("Raw Transcript", expanded=False):
             raw_text = "\n".join(st.session_state.raw_lines[-500:])

@@ -6,3 +6,6 @@ botc_game_log_*_ui_partial.xml
 intel_tests/results/
 *.log
 .env
+head_to_head_results.*
+setup_presets.json
+*.flag
