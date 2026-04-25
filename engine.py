@@ -539,6 +539,17 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
                 modified_messages.append(msg)
         return modified_messages
 
+    def _add_token_overrun_warning(messages):
+        modified_messages = list(messages)
+        modified_messages.append({
+            "role": "system",
+            "content": (
+                "WARNING: YOUR FIRST ATTEMPT TO RESPOND FAILED DUE TO EXCESS TOKEN USAGE. "
+                "YOU SHOULD AIM TO USE SIGNIFICANTLY LESS OR ELSE YOU WILL NOT SAY ANYTHING."
+            ),
+        })
+        return modified_messages
+
     def _handle_llm_api_failure(exc):
         err_text = str(exc)
         lowered = err_text.lower()
@@ -619,7 +630,10 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
         except Exception as e:
             print_colored(f"[CACHE] Error reading cache stats: {e}", 'ERROR')
 
-    # If we still got truncated (no visible text) or status=incomplete, retry once with more room & minimal effort
+    # If the model spent the whole output budget on reasoning or otherwise
+    # produced no visible text, retry once with the same cap, lower reasoning,
+    # and an explicit warning. Do not silently raise the token cap here: that
+    # hides the problem and increases cost.
     try:
         # Check if we have a valid response object
         if 'resp' in locals() and resp is not None:
@@ -645,7 +659,13 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
             
             gs2.log_secret(f"[DEBUG] Retry due to incomplete/empty output. status={status}, reason={reason}, used={usage_info}")
         try:
-            resp = _create(selected_model_name, "minimal", max(effective_max * 2, 2048))
+            retry_messages = _add_token_overrun_warning(messages)
+            if gs2 is not None and player is not None:
+                gs2.log_secret(
+                    "[LLM RETRY] First attempt failed due to incomplete/empty output. "
+                    "Retrying with reasoning_effort=low and token-overrun warning appended."
+                )
+            resp = _create(selected_model_name, "low", effective_max, retry_messages)
             content = _extract_text(resp)
         except Exception as e:
             fallback = _handle_llm_api_failure(e)
@@ -657,7 +677,8 @@ def call_gpt(messages, label=None, max_tokens=1500, temperature=0.7): # At some 
                     gs2.log_secret(f"[DEBUG] Policy violation detected on retry, retrying with game context: {e}")
                 try:
                     modified_messages = _add_game_context(messages)
-                    resp = _create(selected_model_name, "minimal", max(effective_max * 2, 2048), modified_messages)
+                    modified_messages = _add_token_overrun_warning(modified_messages)
+                    resp = _create(selected_model_name, "low", effective_max, modified_messages)
                     content = _extract_text(resp)
                 except Exception as e2:
                     fallback = _handle_llm_api_failure(e2)
@@ -1759,7 +1780,7 @@ class GameState:
 TB_ROLES: List[Role] = [
     # Townsfolk  (12)
     Role("Washerwoman",   Alignment.TOWNSFOLK, "You start knowing that 1 of 2 players is a particular Townsfolk.", first_night=True),
-    Role("Librarian",     Alignment.TOWNSFOLK, "You start knowing that 1 of 2 players is a particular Outsider. (Or that zero are in play.)", first_night=True),
+    Role("Librarian",     Alignment.TOWNSFOLK, "You start knowing that 1 of 2 players is a particular Outsider. (Or that zero Outsiders are in play.)", first_night=True),
     Role("Investigator",  Alignment.TOWNSFOLK, "You start with knowledge that one of two players is a particular Minion. You will be told that either [player x] or [player y] is a [type of minion]", first_night=True),
     Role("Chef",          Alignment.TOWNSFOLK, "You start knowing how many adjacent 'pairs' of evil players there were at the beginning of the game, including players that might register as evil.", first_night=True),
     Role("Empath",        Alignment.TOWNSFOLK, "Each night, you learn how many of your 2 alive neighbours are evil.", first_night=True, other_nights=True),
@@ -1966,7 +1987,15 @@ def can_target_player(target: Player, allow_dead: bool = False) -> bool:
     return target.alive  # Default: only target living players
 
 def get_targetable_players(gs: GameState, allow_dead: bool = False, exclude_self: Player = None) -> List[Player]:
-    """Get list of players that can be targeted."""
+    """Get list of players that can be targeted.
+
+    Targeting invariant for this simulator:
+    - Active ability choices are living-only unless the role explicitly says
+      "dead player" (currently Professor-style resurrection).
+    - Self-targeting is legal unless the role text says "not yourself" or the
+      caller passes exclude_self. Do not pass exclude_self just because the
+      acting player is the chooser; Imp self-kill depends on this.
+    """
     targets = []
     for player in gs.players:
         if exclude_self and player == exclude_self:
@@ -2072,6 +2101,25 @@ def attempt_kill_player(gs: GameState, target: Player, killer: str = "unknown", 
     
     gs.log_secret(f"{target.label()} was killed by {killer}.")
     return True
+
+def resolve_imp_starpass(gs: GameState, imp: Player, killed_target: Player, success: bool):
+    """Handle only the Imp's explicit self-kill transfer.
+
+    Important: other Demons may be legal self-targets in this simulator, but
+    they do not get the Imp's "If you kill yourself this way..." starpass text.
+    Scarlet Woman is a separate passive effect handled by check_win_condition().
+    """
+    if not success or imp.role.name != "Imp" or killed_target is not imp:
+        return
+    candidates = [p for p in gs.players if p.alive and p.alignment is Alignment.MINION]
+    if not candidates:
+        gs.log_secret(f"Imp starpass: {imp.label()} killed themselves, but no living Minion was available to become the Imp.")
+        return
+    new_imp = random.choice(candidates)
+    old_role = new_imp.role.name
+    new_imp.role = ROLE_BY_NAME["Imp"]
+    new_imp.memory["became_imp"] = {"from": imp.seat, "night": gs.day, "previous_role": old_role}
+    gs.log_secret(f"Imp starpass: {imp.label()} killed themselves; {new_imp.label()} ({old_role}) becomes the Imp.")
 
 def resolve_ability(player: Player, normal_fn, drunk_fn=None):
     """
@@ -2950,7 +2998,10 @@ def run_day_discussion(gs: GameState):
             slay_match = re.search(r'SLAYER_SHOT:\s*([A-Za-z]+)', speech, re.IGNORECASE)
             if slay_match:
                 target_name = slay_match.group(1).strip()
-                target = next((p for p in all_players if p.name.lower() == target_name.lower()), None)
+                # Slayer shots target living players; don't allow dead or
+                # dead-registering Zombuul targets to be selected by parser.
+                slayer_targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
+                target = next((p for p in slayer_targets if p.name.lower() == target_name.lower()), None)
                 
                 # Always attempt Slayer ability and give public response, regardless of player role/status
                 if target:
@@ -3053,7 +3104,10 @@ def run_nominations(gs: GameState):
                 # --- Slayer trigger ---
                 if choice.startswith('slayer_shot '):
                     target_name = choice[10:].strip()
-                    target = next((p for p in options if p.name.lower() == target_name.lower()), None)
+                    # Slayer shots target living players, independent of BMR's
+                    # broader nomination eligibility for dead players.
+                    slayer_targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
+                    target = next((p for p in slayer_targets if p.name.lower() == target_name.lower()), None)
                     
                     # Always attempt Slayer ability and give public response, regardless of player role/status
                     if target:
@@ -3744,12 +3798,15 @@ def empath_ability(gs: GameState, player: Player):
 
 def fortune_teller_ability(gs: GameState, player: Player):
     """Fortune Teller chooses 2 players: learns if either is a Demon."""
-    others = [p for p in gs.players if p is not player]
+    # Active night choices use living targets unless the role explicitly says
+    # dead. Fortune Teller does not say "dead", and it also does not say "not
+    # yourself", so self is legal but dead players are not.
+    others = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     def normal_fn():
         # Always prompt human Fortune Teller for their action
         if is_human_player(player) and len(others) >= 2:
             print_colored(f"[YOUR TURN] {player.name} (Seat {player.seat}), choose TWO players to check.", 'PROMPT')
-            print_colored(f"Other players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+            print_colored(f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
             while True:
                 choice = input(f"Enter two seat numbers or names, separated by space: ").strip().lower()
                 if choice == "" or choice == "pass":
@@ -3817,7 +3874,7 @@ def fortune_teller_ability(gs: GameState, player: Player):
         # Always prompt human Fortune Teller for their action
         if is_human_player(player) and len(others) >= 2:
             print_colored(f"[YOUR TURN] {player.name} (Seat {player.seat}), choose TWO players to check.", 'PROMPT')
-            print_colored(f"Other players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+            print_colored(f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
             while True:
                 choice = input(f"Enter two seat numbers or names, separated by space: ").strip().lower()
                 if choice == "" or choice == "pass":
@@ -3896,7 +3953,7 @@ def monk_ability(gs: GameState, player: Player):
     # Get target selection (same for both drunk and normal)
     if is_human_player(player):
         print_llm_prompt_for_seat(player, f"[YOUR TURN] {player.name} (Seat {player.seat}), choose a player to protect (not yourself).", 'PROMPT')
-        print_llm_prompt_for_seat(player, f"Other living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+        print_llm_prompt_for_seat(player, f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
         while True:
             choice = input(f"Enter seat number or name to protect: ").strip().lower()
             target = None
@@ -4006,8 +4063,9 @@ def undertaker_ability(gs: GameState, player: Player):
 
 def ravenkeeper_ability(gs: GameState, player: Player):
     """Ravenkeeper chooses a player when they die at night: learns their character."""
-    # Include all other players (the Ravenkeeper can choose anyone, even if they're dead)
-    others = [p for p in gs.players if p is not player]
+    # This simulator's active targeting convention is living-only unless the
+    # role explicitly says "dead player" (Professor). Ravenkeeper does not.
+    others = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     
     if not others:
         gs.log_secret(f"Ravenkeeper → {player.label()} ability failed (no valid targets).")
@@ -4016,7 +4074,7 @@ def ravenkeeper_ability(gs: GameState, player: Player):
     # Get target selection (same for both drunk and normal)
     if is_human_player(player):
         print_llm_prompt_for_seat(player, f"[YOUR TURN] {player.name} (Seat {player.seat}), you died tonight! Choose a player to learn their role.", 'PROMPT')
-        print_llm_prompt_for_seat(player, f"All other players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+        print_llm_prompt_for_seat(player, f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
         while True:
             choice = input(f"Enter seat number or name to learn their role: ").strip().lower()
             target = None
@@ -5370,7 +5428,7 @@ def butler_ability(gs: GameState, player: Player):
     # Get target selection (same for both drunk and normal)
     if is_human_player(player):
         print_llm_prompt_for_seat(player, f"[YOUR TURN] {player.name} (Seat {player.seat}), choose your master (not yourself).", 'PROMPT')
-        print_llm_prompt_for_seat(player, f"Other living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+        print_llm_prompt_for_seat(player, f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
         while True:
             choice = input(f"Enter seat number or name for your master: ").strip().lower()
             target = None
@@ -5428,7 +5486,7 @@ def spy_ability(gs: GameState, player: Player):
 
 def poisoner_ability(gs: GameState, player: Player):
     """Poisoner chooses a player to poison each night."""
-    others = [p for p in gs.players if p.alive and p is not player]
+    others = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not others:
         gs.log_secret(f"Poisoner → {player.label()} ability failed (no valid targets).")
         return
@@ -5436,7 +5494,7 @@ def poisoner_ability(gs: GameState, player: Player):
     # Get target selection (same for both drunk and normal)
     if is_human_player(player):
         print_llm_prompt_for_seat(player, f"[YOUR TURN] {player.name} (Seat {player.seat}), choose a player to poison.", 'PROMPT')
-        print_llm_prompt_for_seat(player, f"Other living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+        print_llm_prompt_for_seat(player, f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
         while True:
             choice = input(f"Enter seat number or name to poison: ").strip().lower()
             target = None
@@ -5486,8 +5544,8 @@ def poisoner_ability(gs: GameState, player: Player):
 
 def run_imp_ability(gs: GameState, player: Player):
     """Imp chooses a player to kill each night (except first night)."""
-    # Only allow targeting living players
-    others = [p for p in gs.players if p.alive and p is not player]
+    # Imp must be able to target itself: "If you kill yourself this way..."
+    others = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not others:
         gs.log_secret(f"Imp → {player.label()} ability failed (no valid targets).")
         return
@@ -5495,7 +5553,7 @@ def run_imp_ability(gs: GameState, player: Player):
     # Get target selection (same for both drunk and normal)
     if is_human_player(player):
         print_llm_prompt_for_seat(player, f"[YOUR TURN] {player.name} (Seat {player.seat}), choose a player to kill.", 'PROMPT')
-        print_llm_prompt_for_seat(player, f"Other living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
+        print_llm_prompt_for_seat(player, f"Living players: {', '.join(f'{p.name} (Seat {p.seat})' for p in others)}", 'PUBLIC')
         while True:
             choice = input(f"Enter seat number or name to kill: ").strip().lower()
             target = None
@@ -5550,6 +5608,7 @@ def run_imp_ability(gs: GameState, player: Player):
             success = attempt_kill_player(gs, target, "Imp", "night", player)
             if success:
                 gs.memory["killed_by_demon"] = target
+                resolve_imp_starpass(gs, player, target, success)
         
         gs.log_secret(f"[PRIVATE] {player.label()} is told: {msg}")
     
@@ -5838,7 +5897,7 @@ def sailor_ability(gs: GameState, player: Player):
     refresh_sailor_survivability(player)
     
     def normal_fn():
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             gs.log_secret(f"Sailor {player.label()} has no valid targets.")
             return None
@@ -5876,7 +5935,7 @@ def sailor_ability(gs: GameState, player: Player):
     def drunk_fn():
         # Drunk Sailor thinks their ability works but it actually doesn't, and they are not told anything different.
         # They should be able to choose targets as normal, but their ability has no effect
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             return None
         
@@ -6006,7 +6065,7 @@ def exorcist_ability(gs: GameState, player: Player):
     def normal_fn():
         # Check if we can use ability (different target from last night)
         last_target = player.memory.get("exorcist_last_target")
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         
         # Filter out last night's target if it exists
         if last_target is not None:
@@ -6091,7 +6150,7 @@ def exorcist_ability(gs: GameState, player: Player):
         # Drunk Exorcist makes random choice but doesn't actually block Demon
         # Check if we can use ability (different target from last night)
         last_target = player.memory.get("exorcist_last_target")
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         
         # Filter out last night's target if it exists
         if last_target is not None:
@@ -6347,7 +6406,7 @@ def gambler_ability(gs: GameState, player: Player):
     gs.log_action_start("gambler_ability", player)
     
     def normal_fn():
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             gs.log_secret(f"Gambler {player.label()} has no valid targets.")
             return None
@@ -6379,7 +6438,7 @@ def gambler_ability(gs: GameState, player: Player):
     def drunk_fn():
         # Drunk Gambler thinks their ability works but it actually doesn't, and they are not told anything different.
         # They should be able to choose targets as normal, but their ability has no effect
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             return None
         
@@ -6746,7 +6805,7 @@ def capo_crimini_night_ability(gs: GameState, player: Player):
         return
     
     def normal_fn():
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             gs.log_secret(f"Capo Crimini {player.label()} has no valid targets.")
             return None
@@ -6801,7 +6860,7 @@ def capo_crimini_night_ability(gs: GameState, player: Player):
     
     def drunk_fn():
         # Drunk Capo makes random choice
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             return None
         
@@ -6869,7 +6928,7 @@ def devils_advocate_ability(gs: GameState, player: Player):
     def normal_fn():
         # Check if we can use ability (different target from last night)
         last_target = player.memory.get("devils_advocate_last_target")
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         
         # Filter out last night's target if it exists
         if last_target is not None:
@@ -6905,7 +6964,7 @@ def devils_advocate_ability(gs: GameState, player: Player):
     def drunk_fn():
         # Drunk Devil's Advocate thinks their ability works but it actually doesn't, and they are not told anything different.
         # They should be able to choose targets as normal, but their ability has no effect
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             return None
         
@@ -7013,7 +7072,7 @@ def assassin_ability(gs: GameState, player: Player):
         return
     
     def normal_fn():
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             gs.log_secret(f"Assassin {player.label()} has no valid targets.")
             return None
@@ -7056,7 +7115,7 @@ def assassin_ability(gs: GameState, player: Player):
     def drunk_fn():
         # Drunk Assassin thinks their ability works but it actually doesn't, and they are not told anything different.
         # They should be able to choose targets as normal, but their ability has no effect
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             return None
         
@@ -7114,7 +7173,7 @@ def run_zombuul_ability(gs: GameState, player: Player):
     
     if not someone_died_today:
         # No one died today, so Zombuul must kill
-        targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+        targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
         if not targets:
             gs.log_secret(f"Zombuul {player.label()} has no valid targets.")
             gs.log_action_end("zombuul_ability", "No targets available", player)
@@ -7187,7 +7246,7 @@ def run_pukka_ability(gs: GameState, player: Player):
         previously_poisoned.hidden_state.pop("was_ever_pukka_poisoned", None)
     
     # Choose new target to poison
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Pukka {player.label()} has no valid targets.")
         gs.log_action_end("pukka_ability", "No targets available", player)
@@ -7295,7 +7354,7 @@ def run_shabaloth_ability(gs: GameState, player: Player):
             gs.log_secret(f"Shabaloth {player.label()} has no eligible targets for regurgitation from last night.")
     
     # Choose 2 new targets
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if len(targets) < 2:
         gs.log_secret(f"Shabaloth {player.label()} needs 2 targets but only {len(targets)} available.")
         gs.log_action_end("shabaloth_ability", "Not enough targets", player)
@@ -7377,7 +7436,7 @@ def run_po_ability(gs: GameState, player: Player):
     # This prevents the exploit of choosing no-one on night 1, then killing 3 on night 2
     must_choose_three = (last_choice == "no-one" and gs.day != 2)
     
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     
     if must_choose_three:
         if len(targets) < 3:
@@ -7916,7 +7975,7 @@ def run_lunatic_imp_ability(gs: GameState, player: Player):
         return
     
     # Get targets (same as real Imp)
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Imp but has no valid targets.")
         return
@@ -7955,7 +8014,7 @@ def run_lunatic_zombuul_ability(gs: GameState, player: Player):
         return
     
     # Get targets
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Zombuul but has no valid targets.")
         return
@@ -7978,7 +8037,7 @@ def run_lunatic_pukka_ability(gs: GameState, player: Player):
     # Pukka can target on all nights including Night 0
     
     # Get targets
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Pukka but has no valid targets.")
         return
@@ -8004,7 +8063,7 @@ def run_lunatic_shabaloth_ability(gs: GameState, player: Player):
         return
     
     # Get targets
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Shabaloth but has no valid targets.")
         return
@@ -8028,7 +8087,7 @@ def run_lunatic_po_ability(gs: GameState, player: Player):
         return
     
     # Get targets
-    targets = get_targetable_players(gs, allow_dead=False, exclude_self=player)
+    targets = get_targetable_players(gs, allow_dead=False, exclude_self=None)
     if not targets:
         gs.log_secret(f"Lunatic {player.label()} thinks they are the Po but has no valid targets.")
         return
